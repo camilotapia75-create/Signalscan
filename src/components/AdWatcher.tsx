@@ -55,6 +55,36 @@ function RealAd() {
   );
 }
 
+// Generic script-based ad (PropellerAds, Adsterra, etc.)
+// Set NEXT_PUBLIC_AD_SCRIPT_SRC to the script URL from your ad provider
+// Set NEXT_PUBLIC_AD_CONTAINER_ID to the div id they specify (if any)
+function ScriptAd() {
+  const scriptSrc = process.env.NEXT_PUBLIC_AD_SCRIPT_SRC!;
+  const containerId = process.env.NEXT_PUBLIC_AD_CONTAINER_ID;
+  const loaded = useRef(false);
+
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    const script = document.createElement("script");
+    script.async = true;
+    script.setAttribute("data-cfasync", "false");
+    script.src = scriptSrc;
+    document.head.appendChild(script);
+    return () => {
+      if (document.head.contains(script)) document.head.removeChild(script);
+    };
+  }, [scriptSrc]);
+
+  return (
+    <div
+      className="w-full min-h-[200px] flex items-center justify-center bg-gray-50 rounded-xl border border-gray-200 overflow-hidden"
+    >
+      <div id={containerId ?? "ad-container"} style={{ width: "100%", minHeight: "200px" }} />
+    </div>
+  );
+}
+
 function FallbackAd({ index }: { index: number }) {
   const ad = FALLBACK_ADS[index % FALLBACK_ADS.length];
   return (
@@ -72,10 +102,12 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
   const [message, setMessage] = useState("");
   const [adIndex] = useState(() => Math.floor(Math.random() * FALLBACK_ADS.length));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const hasRealAds = !!(
+  const hasAdSense = !!(
     process.env.NEXT_PUBLIC_ADSENSE_CLIENT &&
     process.env.NEXT_PUBLIC_ADSENSE_SLOT
   );
+  const hasScriptAd = !!process.env.NEXT_PUBLIC_AD_SCRIPT_SRC;
+  const hasRealAds = hasAdSense || hasScriptAd;
 
   // Slightly longer watch time for real ads
   const watchSeconds = hasRealAds ? 8 : 5;
@@ -139,7 +171,7 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
         <h2 className="text-xl font-bold text-gray-800 text-center mb-1">🎬 Watching Ad…</h2>
         <p className="text-gray-400 text-sm text-center mb-4">Keep this window open to earn your entry</p>
 
-        {hasRealAds ? <RealAd /> : <FallbackAd index={adIndex} />}
+        {hasAdSense ? <RealAd /> : hasScriptAd ? <ScriptAd /> : <FallbackAd index={adIndex} />}
 
         <div className="flex items-center justify-center gap-3 mt-5">
           <div

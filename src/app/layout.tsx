@@ -12,6 +12,9 @@ export const metadata: Metadata = {
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
   const adsenseClient = process.env.NEXT_PUBLIC_ADSENSE_CLIENT;
+  // Generic ad network script (PropellerAds, Adsterra, etc.) — loaded at layout level
+  // so it's available before the ad container renders
+  const adScriptSrc = process.env.NEXT_PUBLIC_AD_SCRIPT_SRC;
 
   return (
     <html lang="en">
@@ -21,6 +24,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             async
             src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClient}`}
             crossOrigin="anonymous"
+            strategy="afterInteractive"
+          />
+        )}
+        {adScriptSrc && !adsenseClient && (
+          <Script
+            async
+            src={adScriptSrc}
+            data-cfasync="false"
             strategy="afterInteractive"
           />
         )}
