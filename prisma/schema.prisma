@@ -16,6 +16,7 @@ model User {
   image         String?
   password      String?
   isAdmin       Boolean   @default(false)
+  paypalEmail   String?   // for receiving payouts
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -24,6 +25,7 @@ model User {
   adViews   AdView[]
   earnings  Earning[]
   entries   LotteryEntry[]
+  payouts   Payout[]
 }
 
 model Account {
@@ -67,12 +69,12 @@ model AdView {
   userId    String
   viewedAt  DateTime @default(now())
   date      String   // YYYY-MM-DD format for daily tracking
-  adRevenue Float    @default(0.001) // revenue per ad view
+  adRevenue Float    @default(0.001)
 
   user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   lotteryEntry  LotteryEntry?
 
-  @@unique([userId, date]) // one ad per user per day
+  @@unique([userId, date])
 }
 
 model LotteryEntry {
@@ -90,25 +92,48 @@ model LotteryEntry {
 }
 
 model LotteryDraw {
-  id          String   @id @default(cuid())
-  date        String   @unique // YYYY-MM-DD
-  totalPool   Float    @default(0)
-  totalViews  Int      @default(0)
-  winnersCount Int     @default(0)
-  prizePerWinner Float @default(0)
-  drawnAt     DateTime @default(now())
-  winnerIds   String   @default("[]") // JSON array of user IDs
+  id             String   @id @default(cuid())
+  date           String   @unique // YYYY-MM-DD
+  totalPool      Float    @default(0)
+  totalViews     Int      @default(0)
+  winnersCount   Int      @default(0)
+  prizePerWinner Float    @default(0)
+  drawnAt        DateTime @default(now())
+  winnerIds      String   @default("[]") // JSON array of user IDs
+  payoutStatus   String   @default("pending") // pending | processing | complete | partial
+  paypalBatchId  String?  // PayPal payout batch ID
 }
 
 model Earning {
-  id        String   @id @default(cuid())
-  userId    String
-  amount    Float
-  date      String   // YYYY-MM-DD
-  drawId    String?
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid())
+  userId        String
+  amount        Float
+  date          String   // YYYY-MM-DD
+  drawId        String?
+  paymentStatus String   @default("pending") // pending | processing | paid | failed | no_paypal
+  paymentTxId   String?  // PayPal transaction ID
+  createdAt     DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payout Payout?
+}
+
+// Tracks individual PayPal payout items
+model Payout {
+  id          String   @id @default(cuid())
+  userId      String
+  earningId   String   @unique
+  amount      Float
+  currency    String   @default("USD")
+  paypalEmail String
+  paypalTxId  String?  // PayPal item transaction ID
+  batchId     String?  // PayPal batch ID
+  status      String   @default("pending") // pending | processing | success | failed | unclaimed
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  earning Earning @relation(fields: [earningId], references: [id], onDelete: Cascade)
 }
 
 model DailyPool {

@@ -62,6 +62,9 @@ jobs:
       # ── Generate Prisma client ────────────────────────────────────────────────
       - name: Generate Prisma client
         run: npx prisma generate
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@localhost/dummy"
+          DIRECT_URL: "postgresql://dummy:dummy@localhost/dummy"
 
       # ── Deploy ────────────────────────────────────────────────────────────────
       - name: Deploy to Vercel

@@ -8,6 +8,7 @@ import StatsCard from "@/components/StatsCard";
 import WinHistory from "@/components/WinHistory";
 import LotteryDraws from "@/components/LotteryDraws";
 import Confetti from "@/components/Confetti";
+import Link from "next/link";
 
 interface Stats {
   todayPool: number;
@@ -152,23 +153,19 @@ export default function Dashboard({ session }: { session: Session }) {
           <LotteryDraws draws={stats.recentDraws} />
         )}
 
-        {/* Admin Link */}
-        {isAdmin && (
-          <div className="text-center mb-4">
-            <a
-              href="/admin"
-              className="text-white/80 underline text-sm hover:text-white"
-            >
+        {/* Footer links */}
+        <div className="flex justify-center gap-6 text-sm">
+          <Link href="/profile" className="text-white/70 underline hover:text-white">
+            My Profile &amp; Payouts
+          </Link>
+          {isAdmin && (
+            <Link href="/admin" className="text-white/70 underline hover:text-white">
               Admin Panel
-            </a>
-          </div>
-        )}
-
-        {/* Sign Out */}
-        <div className="text-center">
+            </Link>
+          )}
           <button
             onClick={() => signOut({ callbackUrl: "/login" })}
-            className="text-white/70 underline text-sm hover:text-white transition-colors"
+            className="text-white/70 underline hover:text-white"
           >
             Sign Out
           </button>
