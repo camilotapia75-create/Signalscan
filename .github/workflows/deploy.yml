@@ -1,0 +1,147 @@
+name: Deploy to Vercel
+
+on:
+  push:
+    branches:
+      - claude/build-app-from-image-maTRF
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      # ── Step 1: Deploy app to Vercel (creates project on first run) ──────────
+      - name: Deploy to Vercel (initial)
+        id: initial_deploy
+        run: |
+          DEPLOY_OUTPUT=$(vercel deploy \
+            --token "$VERCEL_TOKEN" \
+            --prod \
+            --yes \
+            2>&1)
+          echo "$DEPLOY_OUTPUT"
+          DEPLOY_URL=$(echo "$DEPLOY_OUTPUT" | grep -E "https://.*\.vercel\.app" | tail -1)
+          echo "DEPLOY_URL=$DEPLOY_URL" >> $GITHUB_ENV
+          echo "url=$DEPLOY_URL" >> $GITHUB_OUTPUT
+          echo ""
+          echo "✅ Initial deployment: $DEPLOY_URL"
+
+      # ── Step 2: Set auth env vars ─────────────────────────────────────────────
+      - name: Set NEXTAUTH_SECRET
+        run: |
+          SECRET=$(openssl rand -base64 32)
+          echo "$SECRET" | vercel env add NEXTAUTH_SECRET production \
+            --token "$VERCEL_TOKEN" --yes 2>&1 || \
+          vercel env rm NEXTAUTH_SECRET production --yes \
+            --token "$VERCEL_TOKEN" 2>&1 && \
+          echo "$SECRET" | vercel env add NEXTAUTH_SECRET production \
+            --token "$VERCEL_TOKEN" --yes 2>&1 || true
+
+      - name: Set NEXTAUTH_URL
+        run: |
+          echo "${{ env.DEPLOY_URL }}" | vercel env add NEXTAUTH_URL production \
+            --token "$VERCEL_TOKEN" --yes 2>&1 || \
+          vercel env rm NEXTAUTH_URL production --yes \
+            --token "$VERCEL_TOKEN" 2>&1 && \
+          echo "${{ env.DEPLOY_URL }}" | vercel env add NEXTAUTH_URL production \
+            --token "$VERCEL_TOKEN" --yes 2>&1 || true
+
+      # ── Step 3: Create Vercel Postgres database ───────────────────────────────
+      - name: Create Postgres database
+        id: create_db
+        run: |
+          echo "Creating Vercel Postgres (Neon) database..."
+          vercel storage create ad-lottery-db \
+            --type postgres \
+            --token "$VERCEL_TOKEN" \
+            --yes 2>&1 || echo "DB may already exist or creation command differs — continuing"
+
+          # Link the storage to the project
+          vercel storage link \
+            --token "$VERCEL_TOKEN" \
+            --yes 2>&1 || echo "Link step skipped — continuing"
+
+      # ── Step 4: Pull env vars and run DB migrations ───────────────────────────
+      - name: Pull environment variables
+        run: |
+          vercel env pull .env.production \
+            --token "$VERCEL_TOKEN" \
+            --yes 2>&1 || true
+
+          if [ -f .env.production ]; then
+            echo "✅ Pulled env vars"
+            grep -c "DATABASE_URL" .env.production && \
+              echo "DATABASE_URL is set" || \
+              echo "⚠️  DATABASE_URL not yet set"
+          fi
+
+      - name: Run database migrations
+        run: |
+          if [ -f .env.production ] && grep -q "DATABASE_URL" .env.production; then
+            set -a && source .env.production && set +a
+            echo "Running prisma db push..."
+            npx prisma db push --skip-generate
+            echo "✅ Database schema pushed"
+
+            echo "Seeding database..."
+            npx tsx prisma/seed.ts
+            echo "✅ Database seeded"
+          else
+            echo "⚠️  No DATABASE_URL found — skipping migrations"
+            echo "Add a Postgres database in your Vercel dashboard and re-run this workflow."
+          fi
+
+      # ── Step 5: Final redeploy with all env vars active ──────────────────────
+      - name: Final production deployment
+        id: final_deploy
+        run: |
+          echo "Running final deployment with all environment variables..."
+          FINAL_OUTPUT=$(vercel deploy \
+            --token "$VERCEL_TOKEN" \
+            --prod \
+            --yes \
+            2>&1)
+          echo "$FINAL_OUTPUT"
+          FINAL_URL=$(echo "$FINAL_OUTPUT" | grep -E "https://.*\.vercel\.app" | tail -1)
+          echo ""
+          echo "========================================"
+          echo "  🚀 App is LIVE!"
+          echo "  URL: $FINAL_URL"
+          echo "========================================"
+          echo ""
+          echo "Test accounts:"
+          echo "  Admin:  admin@adlottery.com / admin123"
+          echo "  User:   user@adlottery.com  / user123"
+          echo "========================================"
+          echo "FINAL_URL=$FINAL_URL" >> $GITHUB_ENV
+
+      - name: Deployment Summary
+        run: |
+          echo "## 🚀 Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Live URL:** ${{ env.FINAL_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Accounts" >> $GITHUB_STEP_SUMMARY
+          echo "| Role | Email | Password |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|----------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Admin | admin@adlottery.com | admin123 |" >> $GITHUB_STEP_SUMMARY
+          echo "| User | user@adlottery.com | user123 |" >> $GITHUB_STEP_SUMMARY
