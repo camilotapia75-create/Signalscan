@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react"; // useCallback kept for handleVideoReady
 import VideoAdPlayer from "@/components/VideoAdPlayer";
 
 interface AdWatcherProps {
@@ -107,11 +107,8 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
     process.env.NEXT_PUBLIC_ADSENSE_CLIENT &&
     process.env.NEXT_PUBLIC_ADSENSE_SLOT
   );
-  const hasScriptAd = !!process.env.NEXT_PUBLIC_AD_SCRIPT_SRC;
-  const hasRealAds = hasAdSense || hasScriptAd;
 
-  // Slightly longer watch time for real ads
-  const watchSeconds = hasRealAds ? 8 : 5;
+  const watchSeconds = 8;
 
   function startWatching() {
     setState("watching");
@@ -154,6 +151,11 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, []);
 
+  // Must be declared before any conditional returns (Rules of Hooks)
+  const handleVideoReady = useCallback(() => {
+    // Video ad finished or failed — the timer handles submitAdWatch on its own schedule
+  }, []);
+
   if (loading) {
     return (
       <div className="bg-white rounded-2xl p-8 mb-6 text-center">
@@ -165,13 +167,6 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
       </div>
     );
   }
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleVideoReady = useCallback(() => {
-    // Video ad finished or failed — submit immediately if timer already done,
-    // otherwise the timer will call submitAdWatch on its own schedule.
-    if (countdown === 0) submitAdWatch();
-  }, [countdown]);
 
   if (state === "watching") {
     return (
