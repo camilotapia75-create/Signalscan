@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import VideoAdPlayer from "@/components/VideoAdPlayer";
 
 interface AdWatcherProps {
   watchedToday: boolean;
@@ -165,6 +166,13 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
     );
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const handleVideoReady = useCallback(() => {
+    // Video ad finished or failed — submit immediately if timer already done,
+    // otherwise the timer will call submitAdWatch on its own schedule.
+    if (countdown === 0) submitAdWatch();
+  }, [countdown]);
+
   if (state === "watching") {
     return (
       <div className="bg-white rounded-2xl p-6 mb-6 fade-in">
@@ -173,20 +181,24 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
 
         {hasAdSense ? (
           <RealAd />
-        ) : hasScriptAd ? (
-          <iframe
-            src="/ad-frame"
-            title="Advertisement"
-            style={{ width: "100%", height: "250px", border: "none", borderRadius: "12px", display: "block" }}
-            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-          />
         ) : (
-          <FallbackAd index={adIndex} />
+          <VideoAdPlayer onReady={handleVideoReady} />
         )}
 
-        <div className="flex items-center justify-center gap-3 mt-5">
+        {/* Progress bar */}
+        <div className="w-full bg-gray-100 rounded-full h-1.5 mt-5">
           <div
-            className="w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold text-white countdown-pulse"
+            className="h-1.5 rounded-full transition-all duration-1000"
+            style={{
+              width: `${((watchSeconds - countdown) / watchSeconds) * 100}%`,
+              background: "linear-gradient(135deg,#9333ea,#ec4899)",
+            }}
+          />
+        </div>
+
+        <div className="flex items-center justify-center gap-3 mt-3">
+          <div
+            className="w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white countdown-pulse"
             style={{ background: "linear-gradient(135deg,#9333ea,#ec4899)" }}
           >
             {countdown}

@@ -49,10 +49,15 @@ export default function Dashboard({ session }: { session: Session }) {
 
   useEffect(() => {
     fetchStats();
+    // Poll every 30 seconds so pool + watcher count stay current
+    const interval = setInterval(fetchStats, 30_000);
+    return () => clearInterval(interval);
   }, [fetchStats]);
 
   function handleAdWatched() {
+    // Refresh immediately, then again after 2s to catch any DB lag
     fetchStats();
+    setTimeout(fetchStats, 2000);
     setShowConfetti(true);
     setTimeout(() => setShowConfetti(false), 4000);
   }
