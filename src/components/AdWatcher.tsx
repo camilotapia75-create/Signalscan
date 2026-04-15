@@ -174,11 +174,12 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
         {hasAdSense ? (
           <RealAd />
         ) : hasScriptAd ? (
-          <div className="w-full rounded-xl border-2 border-dashed border-purple-200 bg-purple-50 p-8 text-center">
-            <div className="text-4xl mb-3">📺</div>
-            <p className="text-purple-700 font-semibold mb-1">Ad is displaying on your screen</p>
-            <p className="text-purple-500 text-sm">Look for the ad notification in the corner of your browser</p>
-          </div>
+          <iframe
+            src="/ad-frame"
+            title="Advertisement"
+            style={{ width: "100%", height: "250px", border: "none", borderRadius: "12px", display: "block" }}
+            sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+          />
         ) : (
           <FallbackAd index={adIndex} />
         )}
