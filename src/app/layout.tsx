@@ -15,6 +15,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Generic ad network script (PropellerAds, Adsterra, etc.) — loaded at layout level
   // so it's available before the ad container renders
   const adScriptSrc = process.env.NEXT_PUBLIC_AD_SCRIPT_SRC;
+  const adZoneId = process.env.NEXT_PUBLIC_AD_ZONE_ID;
 
   return (
     <html lang="en">
@@ -32,6 +33,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             async
             src={adScriptSrc}
             data-cfasync="false"
+            data-zone={adZoneId}
             strategy="afterInteractive"
           />
         )}
