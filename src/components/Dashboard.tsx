@@ -85,7 +85,7 @@ export default function Dashboard({ session }: { session: Session }) {
           <StatsCard
             icon="$"
             label="Today's Pool"
-            value={loading ? "..." : `$${(stats?.todayPool ?? 0).toFixed(2)}`}
+            value={loading ? "..." : (() => { const v = stats?.todayPool ?? 0; return `$${v < 0.01 && v > 0 ? v.toFixed(4) : v.toFixed(2)}`; })()}
           />
           <StatsCard
             icon="👥"

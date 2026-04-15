@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getTodayDate, hasWatchedAdToday, addToPool } from "@/lib/lottery";
 
-const AD_REVENUE_PER_VIEW = 0.001; // $0.001 per ad view (realistic CPM estimate)
+const AD_REVENUE_PER_VIEW = 0.01; // $0.01 per ad view (~$10 CPM estimate)
 
 export async function POST() {
   const session = await auth();

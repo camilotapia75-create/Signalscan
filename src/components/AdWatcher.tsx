@@ -171,7 +171,17 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
         <h2 className="text-xl font-bold text-gray-800 text-center mb-1">🎬 Watching Ad…</h2>
         <p className="text-gray-400 text-sm text-center mb-4">Keep this window open to earn your entry</p>
 
-        {hasAdSense ? <RealAd /> : hasScriptAd ? <ScriptAd /> : <FallbackAd index={adIndex} />}
+        {hasAdSense ? (
+          <RealAd />
+        ) : hasScriptAd ? (
+          <div className="w-full rounded-xl border-2 border-dashed border-purple-200 bg-purple-50 p-8 text-center">
+            <div className="text-4xl mb-3">📺</div>
+            <p className="text-purple-700 font-semibold mb-1">Ad is displaying on your screen</p>
+            <p className="text-purple-500 text-sm">Look for the ad notification in the corner of your browser</p>
+          </div>
+        ) : (
+          <FallbackAd index={adIndex} />
+        )}
 
         <div className="flex items-center justify-center gap-3 mt-5">
           <div
@@ -212,17 +222,22 @@ export default function AdWatcher({ watchedToday, poolDrawn, onAdWatched, loadin
   }
 
   if (state === "error") {
+    const isUnauth = message.toLowerCase().includes("unauthorized");
     return (
       <div className="bg-white rounded-2xl p-8 mb-6 text-center">
-        <div className="text-5xl mb-4">⚠️</div>
-        <h2 className="text-xl font-bold text-gray-800 mb-2">Something went wrong</h2>
-        <p className="text-red-500 text-sm mb-6">{message}</p>
+        <div className="text-5xl mb-4">{isUnauth ? "🔐" : "⚠️"}</div>
+        <h2 className="text-xl font-bold text-gray-800 mb-2">
+          {isUnauth ? "Session expired" : "Something went wrong"}
+        </h2>
+        <p className="text-red-500 text-sm mb-6">
+          {isUnauth ? "Please refresh the page and try again." : message}
+        </p>
         <button
-          onClick={() => setState("idle")}
+          onClick={() => isUnauth ? window.location.reload() : setState("idle")}
           className="px-6 py-3 text-white font-semibold rounded-xl"
           style={{ background: "linear-gradient(135deg,#9333ea,#ec4899)" }}
         >
-          Try Again
+          {isUnauth ? "Refresh Page" : "Try Again"}
         </button>
       </div>
     );

@@ -106,8 +106,10 @@ jobs:
             fi
           }
 
+          # Use stable alias URL (not the random per-deployment URL) so sessions work across redeploys
+          STABLE_URL="https://ad-lottery.vercel.app"
           set_env "NEXTAUTH_SECRET" "$SECRET" "encrypted"
-          set_env "NEXTAUTH_URL"    "$DEPLOY_URL" "plain"
+          set_env "NEXTAUTH_URL"    "$STABLE_URL" "plain"
 
       # ── Create Postgres database ──────────────────────────────────────────────
       - name: Create Postgres database
