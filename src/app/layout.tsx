@@ -16,6 +16,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // so it's available before the ad container renders
   const adScriptSrc = process.env.NEXT_PUBLIC_AD_SCRIPT_SRC;
   const adZoneId = process.env.NEXT_PUBLIC_AD_ZONE_ID;
+  // Onclick / Popunder zone — fires a full-page ad on first user click
+  const adOnclickSrc = process.env.NEXT_PUBLIC_AD_ONCLICK_SCRIPT_SRC;
+  const adOnclickZone = process.env.NEXT_PUBLIC_AD_ONCLICK_ZONE_ID;
 
   return (
     <html lang="en">
@@ -34,6 +37,15 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             src={adScriptSrc}
             data-cfasync="false"
             data-zone={adZoneId}
+            strategy="afterInteractive"
+          />
+        )}
+        {adOnclickSrc && !adsenseClient && (
+          <Script
+            async
+            src={adOnclickSrc}
+            data-cfasync="false"
+            data-zone={adOnclickZone}
             strategy="afterInteractive"
           />
         )}
