@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SignalScan — Stock Technical Analysis</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.4/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header>
+  <div class="logo">SIGNAL<span>SCAN</span></div>
+  <div style="font-size:10px;color:var(--muted);letter-spacing:2px;">FREE TECHNICAL ANALYSIS</div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <button onclick="toggleHowItWorks()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:6px 14px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">HOW IT WORKS</button>
+    <div class="status-dot"></div>
+  </div>
+</header>
+<div id="howItWorksOverlay" onclick="toggleHowItWorks()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;backdrop-filter:blur(4px);"></div>
+<div id="howItWorksPanel" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#0d1117;border:1px solid #1c2330;z-index:1001;max-width:560px;width:90%;max-height:80vh;overflow-y:auto;">
+  <div style="padding:20px 24px;border-bottom:1px solid #1c2330;display:flex;justify-content:space-between;align-items:center;">
+    <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:16px;">HOW IT WORKS</span>
+    <button onclick="toggleHowItWorks()" style="background:transparent;border:none;color:#5a6a7a;font-size:20px;cursor:pointer;line-height:1;">&times;</button>
+  </div>
+  <div style="padding:24px;">
+    <p style="font-size:11px;color:#5a6a7a;letter-spacing:1px;margin-bottom:20px;line-height:1.6;">SIGNALSCAN has two modes. <em style="color:#00ff88;">REVERSAL</em> detects when a trend is about to flip. <em style="color:#4d9fff;">CONTINUATION</em> detects when a healthy trend is likely to keep going.</p>
+    <div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #1c2330;">
+      <button onclick="showModalTab('reversal')" id="tabReversal" style="flex:1;background:#00ff88;color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;">⚡ REVERSAL</button>
+      <button onclick="showModalTab('continuation')" id="tabContinuation" style="flex:1;background:transparent;color:#5a6a7a;border:none;border-left:1px solid #1c2330;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;">📈 CONTINUATION</button>
+    </div>
+    <div id="modalReversal" style="display:flex;flex-direction:column;gap:3px;">
+      <div style="background:#0a0f18;border:1px solid rgba(255,204,68,0.3);padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Price Action Structure</span><span style="font-size:11px;color:var(--gold);font-weight:700;">25% — BOTH MODES</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Raw price behavior — higher highs/lows, breakouts on volume, 52-week proximity, recent momentum.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">MACD Momentum Shift</span><span style="font-size:11px;color:#00ff88;font-weight:700;">30% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Scores only when histogram is actively changing direction.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Stochastic Cross</span><span style="font-size:11px;color:#00ff88;font-weight:700;">25% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">%K crossing above %D from below 25 = full bull. Above 75 = full bear.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">RSI Exhaustion</span><span style="font-size:11px;color:#00ff88;font-weight:700;">20% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Only scores at true extremes. RSI 35–65 scores exactly zero.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Bollinger Band Bounce</span><span style="font-size:11px;color:#00ff88;font-weight:700;">15% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Price at lower band = full bull. Upper band = full bear. Mid-band = zero.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">EMA Reclaim / Reject</span><span style="font-size:11px;color:#00ff88;font-weight:700;">10% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Only scores when price is actively crossing an EMA (within 2%).</p></div>
+    </div>
+    <div id="modalContinuation" style="display:none;flex-direction:column;gap:3px;">
+      <div style="background:#0a0f18;border:1px solid rgba(255,204,68,0.3);padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Price Action Structure</span><span style="font-size:11px;color:var(--gold);font-weight:700;">25% — BOTH MODES</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Same as Reversal — raw price structure always votes first.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">EMA Stack + Slope</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">30% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">EMA20 &gt; EMA50 = healthy bull. Pullback to EMA20 = ideal buy-the-dip zone.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">MACD Expansion</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">25% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Histogram positive AND expanding = full bull. Shrinking = trend losing steam.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">RSI Momentum Zone</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">20% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">RSI 50–65 = bull momentum zone. RSI 35–50 in bear structure = downtrend intact.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">OBV Trend</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">15% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">OBV rising + volume above average = institutions participating.</p></div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Bollinger Bandwidth</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">10% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Bandwidth &gt;8% = trend strengthening. &lt;4% = consolidating.</p></div>
+    </div>
+    <p style="font-size:10px;color:#3a4a5a;margin-top:16px;text-align:center;">FOR INFORMATIONAL PURPOSES ONLY. NOT FINANCIAL ADVICE.</p>
+  </div>
+</div>
+<main>
+  <div class="error-msg" id="errorMsg"></div>
+  <div id="statusMsg" style="display:none;background:rgba(0,255,136,0.07);border:1px solid var(--accent);color:var(--accent);padding:10px 16px;font-size:12px;margin-bottom:16px;letter-spacing:1px;"></div>
+  <div class="search-row">
+    <input class="ticker-input" type="text" id="tickerInput" placeholder="Stocks or Crypto — AAPL, TSLA, BTC, ETH, SOL..." maxlength="15" />
+    <select class="timeframe-select" id="timeframeSelect">
+      <option value="1d|3mo">3M</option><option value="1d|6mo">6M</option>
+      <option value="1wk|1y" selected>1Y</option><option value="1wk|2y">2Y</option>
+      <option value="1wk|5y">5Y</option><option value="1mo|10y">10Y</option><option value="1mo|max">MAX</option>
+    </select>
+    <button class="analyze-btn" id="analyzeBtn" onclick="runAnalysis()">⚡ ANALYZE</button>
+  </div>
+  <div style="display:flex;gap:0;margin-bottom:24px;border:1px solid var(--border);width:fit-content;">
+    <button id="modeReversal" onclick="setMode('reversal')" style="background:var(--accent);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">⚡ REVERSAL</button>
+    <button id="modeContinuation" onclick="setMode('continuation')" style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">📈 CONTINUATION</button>
+  </div>
+  <div class="grid">
+    <div style="display:flex;flex-direction:column;gap:24px;">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">PRICE ACTION</span><span class="panel-badge" id="trendBadge" style="display:none"></span></div>
+        <div id="tickerInfo" class="ticker-info" style="display:none"></div>
+        <div class="chart-wrap" id="chartWrap"><div class="placeholder"><div class="placeholder-icon">📈</div><div class="placeholder-text">Enter a ticker symbol above<br>and click ANALYZE to begin</div></div></div>
+        <div id="chartControls" style="display:none;padding:8px 20px 12px;justify-content:space-between;align-items:center;border-top:1px solid var(--border);">
+          <span style="font-size:10px;color:var(--muted)">🖱 Scroll to zoom · Click+drag to pan · Pinch on mobile</span>
+          <button onclick="resetZoom()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:4px 10px;cursor:pointer;letter-spacing:1px;">RESET ZOOM</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">TECHNICAL INDICATORS</span></div>
+        <div class="indicators-grid" id="indicatorsGrid">
+          <div class="ind-cell"><div class="ind-label">RSI (14)</div><div class="ind-value" style="color:var(--muted)">—</div></div>
+          <div class="ind-cell"><div class="ind-label">MACD</div><div class="ind-value" style="color:var(--muted)">—</div></div>
+          <div class="ind-cell"><div class="ind-label">EMA 20/50</div><div class="ind-value" style="color:var(--muted)">—</div></div>
+          <div class="ind-cell"><div class="ind-label">BOLLINGER %B</div><div class="ind-value" style="color:var(--muted)">—</div></div>
+          <div class="ind-cell"><div class="ind-label">STOCH %K/%D</div><div class="ind-value" style="color:var(--muted)">—</div></div>
+          <div class="ind-cell"><div class="ind-label">ATR (14)</div><div class="ind-value" style="color:var(--muted)">—</div></div>
+          <div class="ind-cell"><div class="ind-label">OBV TREND</div><div class="ind-value" style="color:var(--muted)">—</div></div>
+          <div class="ind-cell"><div class="ind-label">VOLUME VS AVG</div><div class="ind-value" style="color:var(--muted)">—</div></div>
+        </div>
+      </div>
+      <div class="panel news-panel" id="newsPanel" style="display:none">
+        <div class="panel-header"><span class="panel-title">RECENT NEWS</span><span style="font-size:10px;color:var(--muted)">LAST 7 DAYS</span></div>
+        <div id="newsList"></div>
+      </div>
+    </div>
+    <div class="panel signal-panel">
+      <div class="panel-header"><span class="panel-title">AI SIGNAL</span><span id="modeLabel" style="font-size:10px;color:var(--accent);letter-spacing:1px;">REVERSAL MODE</span></div>
+      <div class="overall-signal">
+        <div class="signal-label">NEXT MOVE</div>
+        <div class="signal-value" id="overallSignal" style="color:var(--muted)">—</div>
+        <div class="signal-confidence" id="signalConf">Awaiting analysis</div>
+        <div id="predictionLabel" style="display:none;"></div>
+      </div>
+      <div class="price-targets" id="priceTargets">
+        <div class="sr-title">PRICE TARGETS (SHORT-TERM)</div>
+        <div class="target-row"><span class="target-label">CURRENT</span><span class="target-price" id="tgt-current" style="color:var(--muted)">—</span></div>
+        <div class="target-row"><span class="target-label">TARGET UP</span><span class="target-price bull" id="tgt-up">—</span></div>
+        <div class="target-row"><span class="target-label">TARGET DOWN</span><span class="target-price bear" id="tgt-down">—</span></div>
+        <div class="target-row"><span class="target-label">STOP LOSS</span><span class="target-price" id="tgt-stop" style="color:var(--gold)">—</span></div>
+      </div>
+      <div id="conflictBanner" style="display:none;margin:0 16px 16px;"></div>
+      <div class="ai-analysis"><div class="sr-title">AI ANALYSIS</div><div class="ai-text" id="aiText">Waiting for analysis...</div></div>
+    </div>
+  </div>
+  <div class="scanner-section">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px;">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;">🐂 GOLDEN BULL <span style="color:var(--gold);">SCANNER</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:1px;line-height:1.7;">SCANS 80+ TOP STOCKS &amp; CRYPTO · FINDS STOCKS WHERE BOTH ENGINES AGREE <span style="color:var(--accent);">BULLISH</span></div>
+      </div>
+      <button class="scan-btn" id="scanBtn" onclick="runScanner()">🔍 SCAN MARKET</button>
+    </div>
+    <div id="scanProgress" style="display:none;margin-bottom:20px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="scanStatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="scanProgressCount">0 / 0</span></div>
+      <div class="scan-progress-bg"><div class="scan-progress-fill" id="scanProgressBar"></div></div>
+      <div style="font-size:10px;color:var(--accent);margin-top:6px;letter-spacing:0.5px;min-height:14px;" id="scanFoundMsg"></div>
+    </div>
+    <div id="scanResultsHeader" style="display:none;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;"></div>
+    <div id="scanResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+    <div id="scanEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
+      <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🔍</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.8;">No golden bull signals detected in current conditions.<br><span style="font-size:11px;">Try during market hours for fresher data.</span></div>
+    </div>
+  </div>
+</main>
+<div style="text-align:center;padding:24px 32px;font-size:10px;color:#3a4a5a;letter-spacing:0.5px;border-top:1px solid #1c2330;margin-top:32px;">FOR INFORMATIONAL PURPOSES ONLY. NOT FINANCIAL ADVICE.</div>
+<script src="js/calc.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/scanner.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
