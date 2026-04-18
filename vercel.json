@@ -1,1 +1,6 @@
-{"rewrites":[{"source":"/(.*)","destination":"/signalscan/$1"}]}
+{
+  "framework": null,
+  "buildCommand": "",
+  "installCommand": "",
+  "outputDirectory": "signalscan"
+}
