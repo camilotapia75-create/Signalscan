@@ -1,4 +1,1 @@
-{
-  "buildCommand": "prisma generate && next build",
-  "framework": "nextjs"
-}
+{"rewrites":[{"source":"/(.*)","destination":"/signalscan/$1"}]}
