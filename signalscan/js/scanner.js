@@ -2,25 +2,36 @@ const SCAN_UNIVERSE = [
   // Mega-cap tech
   'AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','AVGO','ORCL','CRM',
   'NFLX','ADBE','AMD','INTC','QCOM',
-  // High-growth
-  'PLTR','COIN','HOOD','RBLX','U','SNAP','PINS','ROKU','SPOT','SHOP',
-  'DDOG','NET','PATH','DOCS','BILL','GTLB','DUOL','AI','HIMS','CELH',
-  'ONON','DKNG','AFRM','SOFI','UPST','SMCI','WOLF',
+  // AI & AI infrastructure
+  'PLTR','AI','ARM','TSM','MRVL','ALAB','VRT','DELL','SOUN','IONQ',
+  'CEG','VST','EQIX','SMCI',
+  // Cybersecurity
+  'CRWD','PANW','ZS','OKTA','S','FTNT','CYBR','NET',
+  // Cloud & SaaS
+  'DDOG','PATH','DOCS','BILL','GTLB','DUOL','MNDY','CFLT','BRZE',
+  'SHOP','ZM','SPOT','APP','TTD','PAYC','PCTY',
+  // High-growth / fintech
+  'COIN','HOOD','AFRM','SOFI','UPST','DKNG','AXON','TOST',
+  // Consumer tech & social
+  'RBLX','U','SNAP','PINS','ROKU',
+  // Health & wellness
+  'HIMS','CELH','ONON','PODD','TMDX','INSP','IRTC',
   // Mid-cap growth
-  'CRWD','PANW','ZS','OKTA','S','APP','TTD','MELI','NU','SE',
-  'LULU','ULTA','FIVE','SKX','RIVN','CHPT','PAYC','PCTY','TMDX','PODD',
+  'LULU','ULTA','FIVE','SKX','BROS','CAVA','WING',
+  'MELI','NU','SE','RIVN','CHPT','WOLF',
+  // Aerospace & defense
+  'LMT','RTX','NOC','GD','BA','HEI','TDG','LDOS','KTOS','RKLB','ACHR',
+  'HON','GE','CAT',
   // Financials
   'V','MA','JPM','BAC','WFC','GS','MS',
-  // Healthcare
-  'UNH','JNJ','PFE','MRK','ABBV','INSP','IRTC',
-  // Consumer / Retail
-  'WMT','COST','TGT','HD','MCD','SBUX','NKE','BROS','CAVA','WING',
+  // Healthcare / pharma
+  'UNH','JNJ','PFE','MRK','ABBV',
+  // Consumer staples & retail
+  'WMT','COST','TGT','HD','MCD','SBUX','NKE',
   // Media / Telecom
   'DIS','CMCSA','T','VZ',
   // Energy
-  'XOM','CVX','COP','ENPH','SEDG',
-  // Industrials
-  'NEE','SO','BA','CAT','RTX','HON','GE','LMT',
+  'XOM','CVX','COP','ENPH','SEDG','NEE','SO',
   // Crypto miners
   'MARA','RIOT','CLSK',
   // ETFs
