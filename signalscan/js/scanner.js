@@ -1,28 +1,45 @@
 const SCAN_UNIVERSE = [
+  // Mega-cap tech
   'AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','AVGO','ORCL','CRM',
   'NFLX','ADBE','AMD','INTC','QCOM',
+  // High-growth
   'PLTR','COIN','HOOD','RBLX','U','SNAP','PINS','ROKU','SPOT','SHOP',
   'DDOG','NET','PATH','DOCS','BILL','GTLB','DUOL','AI','HIMS','CELH',
   'ONON','DKNG','AFRM','SOFI','UPST','SMCI','WOLF',
+  // Mid-cap growth
+  'CRWD','PANW','ZS','OKTA','S','APP','TTD','MELI','NU','SE',
+  'LULU','ULTA','FIVE','SKX','RIVN','CHPT','PAYC','PCTY','TMDX','PODD',
+  // Financials
   'V','MA','JPM','BAC','WFC','GS','MS',
+  // Healthcare
   'UNH','JNJ','PFE','MRK','ABBV','INSP','IRTC',
+  // Consumer / Retail
   'WMT','COST','TGT','HD','MCD','SBUX','NKE','BROS','CAVA','WING',
+  // Media / Telecom
   'DIS','CMCSA','T','VZ',
+  // Energy
   'XOM','CVX','COP','ENPH','SEDG',
+  // Industrials
   'NEE','SO','BA','CAT','RTX','HON','GE','LMT',
+  // Crypto miners
   'MARA','RIOT','CLSK',
+  // ETFs
   'SPY','QQQ','IWM','GLD','SLV',
+  // Crypto
   'BTC-USD','ETH-USD','SOL-USD','BNB-USD','XRP-USD','DOGE-USD',
   'ADA-USD','AVAX-USD','MATIC-USD','LINK-USD','DOT-USD','UNI-USD'
 ];
 
 async function quickAnalyzeForScan(ticker) {
   try {
-    const data = await fetchStockData(ticker, '3mo', '1d', 5000);
-    if (!data || data.length < 30) return null;
+    const data = await fetchStockData(ticker, '1d|6mo');
+    if (!data || !data.closes || data.closes.filter(Boolean).length < 50) return null;
     const indData = computeIndicators(data);
     if (!indData) return null;
-    const sr = findSupportResistance(data);
+    const closes = data.closes.filter(Boolean);
+    const highs = data.highs.filter(Boolean);
+    const lows = data.lows.filter(Boolean);
+    const sr = findSupportResistance(highs, lows, closes);
     const pa = analyzePriceAction(data);
     const rev = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
@@ -35,20 +52,22 @@ async function quickAnalyzeForScan(ticker) {
 
 function computeIndicators(data) {
   try {
-    const closes = data.map(d => d.close);
-    const highs = data.map(d => d.high);
-    const lows = data.map(d => d.low);
-    const volumes = data.map(d => d.volume);
+    const closes = data.closes.filter(Boolean);
+    const highs = data.highs.filter(Boolean);
+    const lows = data.lows.filter(Boolean);
+    const volumes = data.volumes.filter(Boolean);
     const rsi = calcRSI(closes, 14);
     const macd = calcMACD(closes);
     const bb = calcBollinger(closes, 20, 2);
     const stoch = calcStochastic(highs, lows, closes, 14, 3);
     const atr = calcATR(highs, lows, closes, 14);
     const obv = calcOBV(closes, volumes);
-    const ema20 = calcEMA(closes, 20);
-    const ema50 = calcEMA(closes, 50);
+    const e20 = calcEMA(closes, 20);
+    const e50 = calcEMA(closes, 50);
+    const ema20 = e20[e20.length - 1];
+    const ema50 = e50[e50.length - 1];
     const lastClose = closes[closes.length - 1];
-    const avgVol = volumes.slice(-20).reduce((a,b) => a+b, 0) / 20;
+    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
     const volRatio = volumes[volumes.length - 1] / (avgVol || 1);
     return { rsi, macd, bb, stoch, atr, obv, ema20, ema50, lastClose, volRatio };
   } catch (e) { return null; }
@@ -58,32 +77,47 @@ async function runScanner() {
   const btn = document.getElementById('scanBtn');
   const progress = document.getElementById('scanProgress');
   const grid = document.getElementById('scanResultsGrid');
+  const emptyMsg = document.getElementById('scanEmpty');
+  const header = document.getElementById('scanResultsHeader');
   btn.disabled = true;
-  btn.textContent = '⏳ Scanning...';
+  btn.textContent = '\u23f3 Scanning...';
   progress.style.display = 'block';
+  if (emptyMsg) emptyMsg.style.display = 'none';
+  if (header) header.style.display = 'none';
   grid.innerHTML = '';
   const total = SCAN_UNIVERSE.length;
   let done = 0;
   const bulls = [];
-  const fill = document.getElementById('scanProgressFill');
-  const label = document.getElementById('scanProgressLabel');
+  const fill = document.getElementById('scanProgressBar');
+  const countEl = document.getElementById('scanProgressCount');
+  const statusEl = document.getElementById('scanStatusText');
+  const foundMsg = document.getElementById('scanFoundMsg');
+  if (countEl) countEl.textContent = `0 / ${total}`;
   for (let i = 0; i < total; i += 5) {
     const batch = SCAN_UNIVERSE.slice(i, i + 5);
     const results = await Promise.all(batch.map(quickAnalyzeForScan));
     results.forEach(r => {
       done++;
       if (fill) fill.style.width = `${Math.round(done / total * 100)}%`;
-      if (label) label.textContent = `Scanning ${done}/${total}...`;
-      if (r && r.isGoldenBull) { bulls.push(r); grid.insertAdjacentHTML('beforeend', renderScanCard(r)); }
+      if (countEl) countEl.textContent = `${done} / ${total}`;
+      if (statusEl) statusEl.textContent = `Scanning ${done} of ${total}...`;
+      if (r && r.isGoldenBull) {
+        bulls.push(r);
+        if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
+        grid.insertAdjacentHTML('beforeend', renderScanCard(r));
+      }
     });
     if (i + 5 < total) await new Promise(res => setTimeout(res, 500));
   }
   if (bulls.length === 0) {
-    grid.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#aaa;padding:40px;">No Golden Bulls found right now. Market may be consolidating — check back later.</div>';
+    if (emptyMsg) emptyMsg.style.display = 'block';
+  } else {
+    if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`; header.style.display = 'block'; }
   }
+  if (foundMsg) foundMsg.textContent = '';
   progress.style.display = 'none';
   btn.disabled = false;
-  btn.textContent = `🔍 SCAN AGAIN (${bulls.length} found)`;
+  btn.textContent = `\ud83d\udd0d SCAN AGAIN (${bulls.length} found)`;
 }
 
 function renderScanCard(r) {
@@ -96,18 +130,18 @@ function renderScanCard(r) {
     </div>
     <div style="margin-bottom:8px;">
       <div style="display:flex;justify-content:space-between;font-size:0.8em;margin-bottom:3px;">
-        <span style="color:${color};font-weight:600;">⚡ GOLDEN BULL</span>
+        <span style="color:${color};font-weight:600;">\u26a1 GOLDEN BULL</span>
         <span style="color:${color};font-weight:700;">${pct}% conviction</span>
       </div>
       <div class="scan-card-bar"><div class="scan-progress-fill" style="width:${pct}%;background:${color};"></div></div>
     </div>
-    ${r.topSignal ? `<div style="font-size:0.75em;color:#bbb;line-height:1.4;margin-top:6px;">${r.topSignal.substring(0,90)}${r.topSignal.length>90?'\u2026':''}</div>` : ''}
+    ${r.topSignal ? `<div style="font-size:0.75em;color:#bbb;line-height:1.4;margin-top:6px;">${r.topSignal.substring(0, 90)}${r.topSignal.length > 90 ? '\u2026' : ''}</div>` : ''}
   </div>`;
 }
 
 function loadTickerAndAnalyze(ticker) {
   const input = document.getElementById('tickerInput');
-  if (input) input.value = ticker.replace('-USD','');
+  if (input) input.value = ticker.replace('-USD', '');
   window.scrollTo({ top: 0, behavior: 'smooth' });
   setTimeout(() => runAnalysis(), 400);
 }
