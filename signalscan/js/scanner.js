@@ -153,7 +153,7 @@ async function runScanner() {
   } else {
     if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`; header.style.display = 'block'; }
   }
-  if (foundMsg) foundMsg.textContent = failed > 0 ? `${failed} ticker${failed !== 1 ? 's' : ''} couldn't load (network)` : '';
+  if (foundMsg) foundMsg.textContent = failed > 0 ? `${failed} ticker${failed !== 1 ? 's' : ''} couldn\u2019t load (network)` : '';
   progress.style.display = 'none';
   btn.disabled = false;
   btn.textContent = `\ud83d\udd0d SCAN AGAIN (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ''})`;
