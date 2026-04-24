@@ -76,9 +76,9 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .scan-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 .scan-progress-bg { background: var(--surface); border: 1px solid var(--border); height: 6px; overflow: hidden; margin-top: 8px; }
 .scan-progress-fill { height: 100%; background: linear-gradient(90deg, var(--gold), #ffaa44); width: 0%; transition: width 0.4s ease; }
-.scan-card { background: var(--surface); border: 1px solid rgba(0,255,136,0.2); padding: 18px; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden; }
-.scan-card.perfect { border-color: rgba(0,255,136,0.45); box-shadow: 0 0 20px rgba(0,255,136,0.07); }
-.scan-card-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); }
+.scan-card { background: var(--surface); border: 1px solid transparent; background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, rgba(0,255,136,0.45) 0%, rgba(77,159,255,0.45) 100%); background-origin: border-box; background-clip: padding-box, border-box; padding: 18px; cursor: pointer; transition: all 0.2s; position: relative; overflow: hidden; }
+.scan-card:hover { background-image: linear-gradient(var(--surface), var(--surface)), linear-gradient(135deg, rgba(0,255,136,0.75) 0%, rgba(77,159,255,0.75) 100%); }
+.scan-card-bar { height: 2px; background: linear-gradient(90deg, #00ff88, #4d9fff); border-radius: 1px; margin-bottom: 10px; }
 @keyframes perfectFlash { 0%{opacity:0} 10%{opacity:0.22} 25%{opacity:0.04} 45%{opacity:0.18} 65%{opacity:0.03} 80%{opacity:0.12} 100%{opacity:0} }
 @keyframes perfectBannerPulse { 0%,100%{box-shadow:0 0 0px transparent} 50%{box-shadow:0 0 32px currentColor} }
 @keyframes lockIn { 0%{letter-spacing:6px;opacity:0;transform:scale(1.08)} 60%{letter-spacing:2px;opacity:1;transform:scale(1.01)} 100%{letter-spacing:1.5px;opacity:1;transform:scale(1)} }

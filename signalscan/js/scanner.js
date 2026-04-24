@@ -177,17 +177,16 @@ async function runScanner() {
 }
 
 function renderScanCard(r) {
-  const pct = r.conviction;
-  const color = pct >= 75 ? '#f5c518' : pct >= 60 ? '#4caf50' : '#2196f3';
-  return `<div class="scan-card${pct >= 75 ? ' perfect' : ''}" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+  return `<div class="scan-card" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <span style="font-weight:700;font-size:1.1em;">${r.ticker}</span>
       <span style="font-size:0.85em;color:#aaa;">$${r.price.toFixed(r.price < 10 ? 4 : 2)}</span>
     </div>
-    <div style="margin-bottom:${r.topSignal ? '8px' : '0'};">
-      <span style="color:${color};font-weight:600;font-size:0.8em;">⚡ GOLDEN BULL</span>
+    <div class="scan-card-bar"></div>
+    <div style="font-size:0.8em;margin-bottom:${r.topSignal ? '8px' : '0'};">
+      <span style="color:#00ff88;font-weight:600;">⚡ GOLDEN BULL</span>
     </div>
-    ${r.topSignal ? `<div style="font-size:0.75em;color:#bbb;line-height:1.4;margin-top:4px;">${r.topSignal.substring(0, 90)}${r.topSignal.length > 90 ? '…' : ''}</div>` : ''}
+    ${r.topSignal ? `<div style="font-size:0.75em;color:#bbb;line-height:1.4;">${r.topSignal.substring(0, 90)}${r.topSignal.length > 90 ? '…' : ''}</div>` : ''}
   </div>`;
 }
 
