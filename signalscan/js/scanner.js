@@ -44,21 +44,12 @@ const SCAN_UNIVERSE = [
 // Same timeframe as the normal analyzer default (1Y weekly)
 const SCAN_TIMEFRAME = '1wk|1y';
 
-async function quickAnalyzeForScan(ticker, _attempt = 0) {
+async function quickAnalyzeForScan(ticker) {
   try {
     const data = await fetchStockData(ticker, SCAN_TIMEFRAME);
-    if (!data || !data.closes) {
-      if (_attempt < 1) {
-        await new Promise(r => setTimeout(r, 2000));
-        return quickAnalyzeForScan(ticker, 1);
-      }
-      return { _networkFail: true };
-    }
+    if (!data || !data.closes) return { _networkFail: true };
     const closes = data.closes.filter(Boolean);
-    if (closes.length < 45) {
-      console.warn(`[SCANNER] ${ticker}: only ${closes.length} candles — skip`);
-      return null;
-    }
+    if (closes.length < 45) return null;
     const indData = computeIndicators(data);
     if (!indData) return null;
     const highs = data.highs.filter(Boolean);
@@ -73,11 +64,7 @@ async function quickAnalyzeForScan(ticker, _attempt = 0) {
     const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
     return { ticker, price: indData.lastClose, isGoldenBull, conviction, topSignal, revScore: rev.score, contScore: cont.score };
   } catch (e) {
-    if (_attempt < 1) {
-      await new Promise(r => setTimeout(r, 2000));
-      return quickAnalyzeForScan(ticker, 1);
-    }
-    console.error(`[SCANNER] ${ticker}: failed after retry —`, e.message);
+    console.error(`[SCANNER] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
   }
 }
@@ -129,23 +116,20 @@ async function runScanner() {
   const foundMsg = document.getElementById('scanFoundMsg');
   if (countEl) countEl.textContent = `0 / ${total}`;
   console.log(`[SCANNER] Starting scan of ${total} tickers using ${SCAN_TIMEFRAME}`);
-  for (let i = 0; i < total; i += 5) {
-    const batch = SCAN_UNIVERSE.slice(i, i + 5);
-    const results = await Promise.all(batch.map(quickAnalyzeForScan));
-    results.forEach(r => {
-      done++;
-      if (fill) fill.style.width = `${Math.round(done / total * 100)}%`;
-      if (countEl) countEl.textContent = `${done} / ${total}`;
-      if (statusEl) statusEl.textContent = `Scanning ${done} of ${total}...`;
-      if (!r) return;
-      if (r._networkFail) { failed++; return; }
-      if (r.isGoldenBull) {
-        bulls.push(r);
-        if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
-        grid.insertAdjacentHTML('beforeend', renderScanCard(r));
-      }
-    });
-    if (i + 5 < total) await new Promise(res => setTimeout(res, 500));
+  for (let i = 0; i < total; i++) {
+    const ticker = SCAN_UNIVERSE[i];
+    if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
+    const r = await quickAnalyzeForScan(ticker);
+    done++;
+    if (fill) fill.style.width = `${Math.round(done / total * 100)}%`;
+    if (countEl) countEl.textContent = `${done} / ${total}`;
+    if (r && r._networkFail) { failed++; }
+    else if (r && r.isGoldenBull) {
+      bulls.push(r);
+      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
+      grid.insertAdjacentHTML('beforeend', renderScanCard(r));
+    }
+    if (i < total - 1) await new Promise(res => setTimeout(res, 600));
   }
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} tickers failed to load.`);
   if (bulls.length === 0) {
