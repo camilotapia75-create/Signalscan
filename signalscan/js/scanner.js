@@ -19,7 +19,7 @@ const SCAN_UNIVERSE_CORE = [
   'HIMS','CELH','ONON','PODD','TMDX','INSP','IRTC',
   // Mid-cap growth
   'LULU','ULTA','FIVE','SKX','BROS','CAVA','WING',
-  'MELI','NU','SE','RIVN','CHPT','WOLF',
+  'MELI','NU','SE','RIVN','WOLF',
   // Aerospace & defense
   'LMT','RTX','NOC','GD','BA','HEI','TDG','LDOS','KTOS','RKLB','ACHR',
   'HON','GE','CAT',
@@ -80,6 +80,9 @@ async function quickAnalyzeForScan(ticker) {
     if (closes.length < 45) return null;
     const indData = computeIndicators(data);
     if (!indData) return null;
+    // Hard gate: require bullish EMA alignment — price > EMA20 > EMA50
+    // Eliminates dead-cat bounces in long-term downtrends (e.g. CHPT-style collapses)
+    if (indData.lastClose < indData.ema20 || indData.ema20 < indData.ema50) return null;
     const highs = data.highs.filter(Boolean);
     const lows = data.lows.filter(Boolean);
     const sr = findSupportResistance(highs, lows, closes);
@@ -174,18 +177,17 @@ async function runScanner() {
 }
 
 function renderScanCard(r) {
-  const isHighConviction = r.conviction >= 60;
-  const yellow = '#f5c518';
-  return `<div class="scan-card${isHighConviction ? ' perfect' : ''}" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.15em;">${r.ticker}</span>
-      <span style="font-size:0.82em;color:#7a8a9a;">$${r.price.toFixed(r.price < 10 ? 4 : 2)}</span>
+  const pct = r.conviction;
+  const color = pct >= 75 ? '#f5c518' : pct >= 60 ? '#4caf50' : '#2196f3';
+  return `<div class="scan-card${pct >= 75 ? ' perfect' : ''}" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-weight:700;font-size:1.1em;">${r.ticker}</span>
+      <span style="font-size:0.85em;color:#aaa;">$${r.price.toFixed(r.price < 10 ? 4 : 2)}</span>
     </div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:${r.topSignal ? '10px' : '0'};">
-      <span style="color:${yellow};font-weight:700;font-size:0.8em;letter-spacing:0.5px;">⚡ GOLDEN BULL</span>
-      ${isHighConviction ? `<span style="color:${yellow};font-size:0.72em;font-weight:600;letter-spacing:1px;opacity:0.85;">· HIGH CONVICTION</span>` : ''}
+    <div style="margin-bottom:${r.topSignal ? '8px' : '0'};">
+      <span style="color:${color};font-weight:600;font-size:0.8em;">⚡ GOLDEN BULL</span>
     </div>
-    ${r.topSignal ? `<div style="font-size:0.73em;color:#8a9aaa;line-height:1.55;">${r.topSignal.substring(0, 95)}${r.topSignal.length > 95 ? '…' : ''}</div>` : ''}
+    ${r.topSignal ? `<div style="font-size:0.75em;color:#bbb;line-height:1.4;margin-top:4px;">${r.topSignal.substring(0, 90)}${r.topSignal.length > 90 ? '…' : ''}</div>` : ''}
   </div>`;
 }
 
