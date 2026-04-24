@@ -118,9 +118,15 @@
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px;">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;">🐂 GOLDEN BULL <span style="color:var(--gold);">SCANNER</span></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:1px;line-height:1.7;">SCANS 80+ TOP STOCKS &amp; CRYPTO · FINDS STOCKS WHERE BOTH ENGINES AGREE <span style="color:var(--accent);">BULLISH</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:1px;line-height:1.7;">SCANS 150+ TOP STOCKS &amp; CRYPTO · FINDS STOCKS WHERE BOTH ENGINES AGREE <span style="color:var(--accent);">BULLISH</span></div>
       </div>
-      <button class="scan-btn" id="scanBtn" onclick="runScanner()">🔍 SCAN MARKET</button>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <select id="scanTimeframe" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;outline:none;">
+          <option value="1wk|1y">1Y WEEKLY</option>
+          <option value="1d|6mo">6M DAILY</option>
+        </select>
+        <button class="scan-btn" id="scanBtn" onclick="runScanner()">🔍 SCAN MARKET</button>
+      </div>
     </div>
     <div id="scanProgress" style="display:none;margin-bottom:20px;">
       <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="scanStatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="scanProgressCount">0 / 0</span></div>

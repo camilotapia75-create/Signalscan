@@ -1,4 +1,5 @@
-const SCAN_UNIVERSE = [
+// Core universe — always scanned
+const SCAN_UNIVERSE_CORE = [
   // Mega-cap tech
   'AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','AVGO','ORCL','CRM',
   'NFLX','ADBE','AMD','INTC','QCOM',
@@ -38,15 +39,42 @@ const SCAN_UNIVERSE = [
   'SPY','QQQ','IWM','GLD','SLV',
   // Crypto
   'BTC-USD','ETH-USD','SOL-USD','BNB-USD','XRP-USD','DOGE-USD',
-  'ADA-USD','AVAX-USD','POL-USD','LINK-USD','DOT-USD','UNI-USD'
+  'ADA-USD','AVAX-USD','POL-USD','LINK-USD','DOT-USD','UNI-USD',
+  // Always included
+  'ZETA',
 ];
 
-// Same timeframe as the normal analyzer default (1Y weekly)
-const SCAN_TIMEFRAME = '1wk|1y';
+// 50-stock rotation pool — 20 picked randomly each day (same picks all day, rotates daily)
+const ROTATION_POOL = [
+  'WDAY','SNOW','MDB','NOW','HUBS','ABNB','UBER','DASH','ASTS','IOT',
+  'INTU','CORZ','IREN','RXRX','CRSP','JOBY','LMND','ZI','VEEV','ESTC',
+  'PYPL','SQ','TWLO','NTNX','PSTG','MPWR','AMBA','CIEN','CALX','HPE',
+  'KEYS','ONTO','SWKS','QRVO','STX','WDC','KKR','APO','BX','MSCI',
+  'MCO','ROP','IDXX','ALGN','DXCM','OXY','FANG','MPC','CTRA','VST',
+];
+
+function getDailyPicks(pool, count) {
+  const d = new Date();
+  let seed = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  const arr = [...pool];
+  for (let i = arr.length - 1; i > 0; i--) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    const j = seed % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.slice(0, count);
+}
+
+const SCAN_UNIVERSE = [...SCAN_UNIVERSE_CORE, ...getDailyPicks(ROTATION_POOL, 20)];
+
+function getScanTimeframe() {
+  const sel = document.getElementById('scanTimeframe');
+  return sel ? sel.value : '1wk|1y';
+}
 
 async function quickAnalyzeForScan(ticker) {
   try {
-    const data = await fetchStockData(ticker, SCAN_TIMEFRAME);
+    const data = await fetchStockData(ticker, getScanTimeframe());
     if (!data || !data.closes) return { _networkFail: true };
     const closes = data.closes.filter(Boolean);
     if (closes.length < 45) return null;
@@ -60,8 +88,6 @@ async function quickAnalyzeForScan(ticker) {
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
     const isGoldenBull = rev.bias === 'BULLISH' && cont.bias === 'BULLISH';
     console.log(`[SCANNER] ${ticker}: rev=${rev.bias}(${rev.score.toFixed(2)}) cont=${cont.bias}(${cont.score.toFixed(2)}) => ${isGoldenBull ? '🐂 GOLDEN BULL' : 'skip'}`);
-    // Remap combined score from golden-bull range [0.2, 1.0] → display range [50, 100]
-    // so every result starts at 50% (minimum qualification) and scales to 100%
     const avgScore = (rev.score + cont.score) / 2;
     const conviction = Math.round(Math.min(100, Math.max(50, 50 + (avgScore - 0.2) / 0.8 * 50)));
     const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
@@ -105,7 +131,7 @@ async function runScanner() {
   const emptyMsg = document.getElementById('scanEmpty');
   const header = document.getElementById('scanResultsHeader');
   btn.disabled = true;
-  btn.textContent = '\u23f3 Scanning...';
+  btn.textContent = '⏳ Scanning...';
   progress.style.display = 'block';
   if (emptyMsg) emptyMsg.style.display = 'none';
   if (header) header.style.display = 'none';
@@ -118,7 +144,8 @@ async function runScanner() {
   const statusEl = document.getElementById('scanStatusText');
   const foundMsg = document.getElementById('scanFoundMsg');
   if (countEl) countEl.textContent = `0 / ${total}`;
-  console.log(`[SCANNER] Starting scan of ${total} tickers using ${SCAN_TIMEFRAME}`);
+  const tf = getScanTimeframe();
+  console.log(`[SCANNER] Starting scan of ${total} tickers using ${tf}`);
   for (let i = 0; i < total; i++) {
     const ticker = SCAN_UNIVERSE[i];
     if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
@@ -140,28 +167,25 @@ async function runScanner() {
   } else {
     if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`; header.style.display = 'block'; }
   }
-  if (foundMsg) foundMsg.textContent = failed > 0 ? `${failed} ticker${failed !== 1 ? 's' : ''} couldn\u2019t load (network)` : '';
+  if (foundMsg) foundMsg.textContent = failed > 0 ? `${failed} ticker${failed !== 1 ? 's' : ''} couldn’t load (network)` : '';
   progress.style.display = 'none';
   btn.disabled = false;
-  btn.textContent = `\ud83d\udd0d SCAN AGAIN (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ''})`;
+  btn.textContent = `🔍 SCAN AGAIN (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ''})`;
 }
 
 function renderScanCard(r) {
-  const pct = r.conviction;
-  const color = pct >= 75 ? '#f5c518' : pct >= 60 ? '#4caf50' : '#2196f3';
-  return `<div class="scan-card${pct >= 75 ? ' perfect' : ''}" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-      <span style="font-weight:700;font-size:1.1em;">${r.ticker}</span>
-      <span style="font-size:0.85em;color:#aaa;">$${r.price.toFixed(r.price < 10 ? 4 : 2)}</span>
+  const isHighConviction = r.conviction >= 60;
+  const yellow = '#f5c518';
+  return `<div class="scan-card${isHighConviction ? ' perfect' : ''}" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.15em;">${r.ticker}</span>
+      <span style="font-size:0.82em;color:#7a8a9a;">$${r.price.toFixed(r.price < 10 ? 4 : 2)}</span>
     </div>
-    <div style="margin-bottom:8px;">
-      <div style="display:flex;justify-content:space-between;font-size:0.8em;margin-bottom:3px;">
-        <span style="color:${color};font-weight:600;">\u26a1 GOLDEN BULL</span>
-        <span style="color:${color};font-weight:700;">${pct}% conviction</span>
-      </div>
-      <div class="scan-card-bar"><div class="scan-progress-fill" style="width:${pct}%;background:${color};"></div></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:${r.topSignal ? '10px' : '0'};">
+      <span style="color:${yellow};font-weight:700;font-size:0.8em;letter-spacing:0.5px;">⚡ GOLDEN BULL</span>
+      ${isHighConviction ? `<span style="color:${yellow};font-size:0.72em;font-weight:600;letter-spacing:1px;opacity:0.85;">· HIGH CONVICTION</span>` : ''}
     </div>
-    ${r.topSignal ? `<div style="font-size:0.75em;color:#bbb;line-height:1.4;margin-top:6px;">${r.topSignal.substring(0, 90)}${r.topSignal.length > 90 ? '\u2026' : ''}</div>` : ''}
+    ${r.topSignal ? `<div style="font-size:0.73em;color:#8a9aaa;line-height:1.55;">${r.topSignal.substring(0, 95)}${r.topSignal.length > 95 ? '…' : ''}</div>` : ''}
   </div>`;
 }
 
