@@ -60,7 +60,10 @@ async function quickAnalyzeForScan(ticker) {
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
     const isGoldenBull = rev.bias === 'BULLISH' && cont.bias === 'BULLISH';
     console.log(`[SCANNER] ${ticker}: rev=${rev.bias}(${rev.score.toFixed(2)}) cont=${cont.bias}(${cont.score.toFixed(2)}) => ${isGoldenBull ? '🐂 GOLDEN BULL' : 'skip'}`);
-    const conviction = Math.round(((rev.confidence || 50) + (cont.confidence || 50)) / 2);
+    // Remap combined score from golden-bull range [0.2, 1.0] → display range [50, 100]
+    // so every result starts at 50% (minimum qualification) and scales to 100%
+    const avgScore = (rev.score + cont.score) / 2;
+    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (avgScore - 0.2) / 0.8 * 50)));
     const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
     return { ticker, price: indData.lastClose, isGoldenBull, conviction, topSignal, revScore: rev.score, contScore: cont.score };
   } catch (e) {
