@@ -80,9 +80,9 @@ async function quickAnalyzeForScan(ticker) {
     if (closes.length < 45) return null;
     const indData = computeIndicators(data);
     if (!indData) return null;
-    // Hard gate: require bullish EMA alignment — price > EMA20 > EMA50
-    // Eliminates dead-cat bounces in long-term downtrends (e.g. CHPT-style collapses)
-    if (indData.lastClose < indData.ema20 || indData.ema20 < indData.ema50) return null;
+    // Require EMA20 > EMA50 — confirms the long-term trend is still up.
+    // Blocks death-spiral stocks (CHPT-style) without filtering pullback entries (HIMS-style).
+    if (indData.ema20 < indData.ema50) return null;
     const highs = data.highs.filter(Boolean);
     const lows = data.lows.filter(Boolean);
     const sr = findSupportResistance(highs, lows, closes);
