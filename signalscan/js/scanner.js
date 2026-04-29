@@ -80,8 +80,23 @@ async function quickAnalyzeForScan(ticker) {
     if (closes.length < 45) return null;
     const indData = computeIndicators(data);
     if (!indData) return null;
+
+    // Price floor: sub-$3 non-crypto stocks are dead-company territory
+    if (!ticker.includes('-USD') && indData.lastClose < 3) return null;
+
     const highs = data.highs.filter(Boolean);
     const lows = data.lows.filter(Boolean);
+
+    // Range position: bottom 20% of yearly range = near yearly lows = structural decline
+    const yearHigh = Math.max(...highs);
+    const yearLow = Math.min(...lows);
+    const rangeSpan = yearHigh - yearLow;
+    if (rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20) return null;
+
+    // EMA50 slope: >8% decline over 8 candles = confirmed structural downtrend, not a bounce
+    const e50 = calcEMA(closes, 50);
+    if (e50.length >= 9 && (e50[e50.length - 1] - e50[e50.length - 9]) / e50[e50.length - 9] < -0.08) return null;
+
     const sr = findSupportResistance(highs, lows, closes);
     const pa = analyzePriceAction(data);
     const rev = generateAnalysis(ticker, indData, sr, pa);
