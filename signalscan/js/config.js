@@ -35,6 +35,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 window.SIGNALSCAN_CONFIG = {
-  supabaseUrl:     'YOUR_SUPABASE_PROJECT_URL',   // e.g. https://abcdefg.supabase.co
-  supabaseAnonKey: 'YOUR_SUPABASE_ANON_KEY',      // safe to be public (RLS protects data)
+  supabaseUrl:     'https://bhykfnuljzzimzmdjcia.supabase.co',
+  supabaseAnonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoeWtmbnVsanp6aW16bWRqY2lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0OTU0NDcsImV4cCI6MjA5MzA3MTQ0N30.Bl1Bigqc6iD8Pi1OTaMPNhRnrP6l4-vzcDoAo_acOUE',
 };
