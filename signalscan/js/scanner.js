@@ -87,15 +87,17 @@ async function quickAnalyzeForScan(ticker) {
     const highs = data.highs.filter(Boolean);
     const lows = data.lows.filter(Boolean);
 
-    // Range position: bottom 20% of yearly range = near yearly lows = structural decline
+    // Structural decline filter: reject only when BOTH signals confirm a dead company.
+    // Near yearly lows alone can mean a healthy stock in a market correction.
+    // Steeply declining EMA50 alone can happen during a broad selloff.
+    // Together they specifically identify CHPT-style structural collapse.
     const yearHigh = Math.max(...highs);
     const yearLow = Math.min(...lows);
     const rangeSpan = yearHigh - yearLow;
-    if (rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20) return null;
-
-    // EMA50 slope: >8% decline over 8 candles = confirmed structural downtrend, not a bounce
+    const nearYearlyLow = rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20;
     const e50 = calcEMA(closes, 50);
-    if (e50.length >= 9 && (e50[e50.length - 1] - e50[e50.length - 9]) / e50[e50.length - 9] < -0.08) return null;
+    const ema50Collapsing = e50.length >= 9 && (e50[e50.length - 1] - e50[e50.length - 9]) / e50[e50.length - 9] < -0.08;
+    if (nearYearlyLow && ema50Collapsing) return null;
 
     const sr = findSupportResistance(highs, lows, closes);
     const pa = analyzePriceAction(data);
