@@ -141,53 +141,77 @@ function computeIndicators(data) {
   }
 }
 
-async function runScanner() {
-  const btn = document.getElementById('scanBtn');
-  const progress = document.getElementById('scanProgress');
-  const grid = document.getElementById('scanResultsGrid');
-  const emptyMsg = document.getElementById('scanEmpty');
-  const header = document.getElementById('scanResultsHeader');
+async function _runScanCore(tickers, ids) {
+  const { btnId, progressId, gridId, emptyId, headerId, foundMsgId, statusId, countId, barId, btnLabel } = ids;
+  const btn      = document.getElementById(btnId);
+  const progress = document.getElementById(progressId);
+  const grid     = document.getElementById(gridId);
+  const emptyMsg = document.getElementById(emptyId);
+  const header   = document.getElementById(headerId);
+
   btn.disabled = true;
-  btn.textContent = '⏳ Scanning...';
-  progress.style.display = 'block';
-  if (emptyMsg) emptyMsg.style.display = 'none';
-  if (header) header.style.display = 'none';
-  grid.innerHTML = '';
-  const total = SCAN_UNIVERSE.length;
+  btn.textContent = ‘⏳ Scanning...’;
+  progress.style.display = ‘block’;
+  if (emptyMsg) emptyMsg.style.display = ‘none’;
+  if (header)   header.style.display   = ‘none’;
+  grid.innerHTML = ‘’;
+
+  const total    = tickers.length;
   let done = 0, failed = 0;
-  const bulls = [];
-  const fill = document.getElementById('scanProgressBar');
-  const countEl = document.getElementById('scanProgressCount');
-  const statusEl = document.getElementById('scanStatusText');
-  const foundMsg = document.getElementById('scanFoundMsg');
+  const bulls    = [];
+  const fill     = document.getElementById(barId);
+  const countEl  = document.getElementById(countId);
+  const statusEl = document.getElementById(statusId);
+  const foundMsg = document.getElementById(foundMsgId);
+
   if (countEl) countEl.textContent = `0 / ${total}`;
-  const tf = getScanTimeframe();
-  console.log(`[SCANNER] Starting scan of ${total} tickers using ${tf}`);
+  console.log(`[SCANNER] Starting scan of ${total} tickers using ${getScanTimeframe()}`);
+
   for (let i = 0; i < total; i++) {
-    const ticker = SCAN_UNIVERSE[i];
+    const ticker = tickers[i];
     if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
     const r = await quickAnalyzeForScan(ticker);
     done++;
-    if (fill) fill.style.width = `${Math.round(done / total * 100)}%`;
-    if (countEl) countEl.textContent = `${done} / ${total}`;
+    if (fill)    fill.style.width          = `${Math.round(done / total * 100)}%`;
+    if (countEl) countEl.textContent       = `${done} / ${total}`;
     if (r && r._networkFail) { failed++; }
     else if (r && r.isGoldenBull) {
       bulls.push(r);
-      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
-      grid.insertAdjacentHTML('beforeend', renderScanCard(r));
+      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? ‘s’ : ‘’} so far...`;
+      grid.insertAdjacentHTML(‘beforeend’, renderScanCard(r));
     }
     if (i < total - 1) await new Promise(res => setTimeout(res, 600));
   }
-  console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} tickers failed to load.`);
+
+  console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
   if (bulls.length === 0) {
-    if (emptyMsg) emptyMsg.style.display = 'block';
+    if (emptyMsg) emptyMsg.style.display = ‘block’;
   } else {
-    if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`; header.style.display = 'block'; }
+    if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? ‘S’ : ‘’} FOUND`; header.style.display = ‘block’; }
   }
-  if (foundMsg) foundMsg.textContent = failed > 0 ? `${failed} ticker${failed !== 1 ? 's' : ''} couldn’t load (network)` : '';
-  progress.style.display = 'none';
-  btn.disabled = false;
-  btn.textContent = `🔍 SCAN AGAIN (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ''})`;
+  if (foundMsg) foundMsg.textContent = failed > 0 ? `${failed} ticker${failed !== 1 ? ‘s’ : ‘’} couldn’t load (network)` : ‘’;
+  progress.style.display = ‘none’;
+  btn.disabled  = false;
+  btn.textContent = `${btnLabel} (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ‘’})`;
+}
+
+function runScanner() {
+  return _runScanCore(SCAN_UNIVERSE, {
+    btnId: ‘scanBtn’,         progressId: ‘scanProgress’,    gridId: ‘scanResultsGrid’,
+    emptyId: ‘scanEmpty’,     headerId: ‘scanResultsHeader’, foundMsgId: ‘scanFoundMsg’,
+    statusId: ‘scanStatusText’, countId: ‘scanProgressCount’, barId: ‘scanProgressBar’,
+    btnLabel: ‘🔍 SCAN AGAIN’,
+  });
+}
+
+function runCustomScanner() {
+  if (!window._watchlistTickers || window._watchlistTickers.length === 0) return;
+  return _runScanCore(window._watchlistTickers, {
+    btnId: ‘customScanBtn’,       progressId: ‘customScanProgress’, gridId: ‘customScanGrid’,
+    emptyId: ‘customScanEmpty’,   headerId: ‘customScanHeader’,     foundMsgId: ‘customScanFoundMsg’,
+    statusId: ‘customScanStatus’, countId: ‘customScanCount’,       barId: ‘customScanBar’,
+    btnLabel: ‘🔍 SCAN AGAIN’,
+  });
 }
 
 function renderScanCard(r) {

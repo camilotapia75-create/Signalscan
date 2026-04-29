@@ -91,6 +91,27 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .perfect-scan-line { position:absolute;left:0;right:0;height:2px;pointer-events:none;animation:scanPerfect 0.9s ease-in forwards; }
 .bull-overlay { position:fixed;top:50%;left:50%;pointer-events:none;z-index:9999;font-size:180px;line-height:1;animation:bullEntry 1.8s cubic-bezier(0.22,1,0.36,1) forwards;filter:drop-shadow(0 0 40px currentColor);user-select:none; }
 .bear-overlay { position:fixed;top:50%;left:50%;pointer-events:none;z-index:9999;font-size:180px;line-height:1;animation:bullBearEntry 1.8s cubic-bezier(0.22,1,0.36,1) forwards;filter:drop-shadow(0 0 40px currentColor);user-select:none; }
+/* ── Auth & Pro ─────────────────────────────────────────────────────────── */
+.header-login-btn { background:transparent; border:1px solid var(--border); color:var(--muted); font-family:'Space Mono',monospace; font-size:10px; padding:6px 14px; cursor:pointer; letter-spacing:1px; transition:all 0.2s; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.header-login-btn:hover { border-color:var(--accent); color:var(--accent); }
+.account-menu { position:absolute; right:0; top:calc(100% + 8px); background:var(--surface); border:1px solid var(--border); z-index:300; min-width:170px; box-shadow:0 8px 32px rgba(0,0,0,0.6); }
+.account-menu-item { display:block; width:100%; background:transparent; border:none; color:var(--text); font-family:'Space Mono',monospace; font-size:11px; padding:13px 16px; cursor:pointer; text-align:left; letter-spacing:1px; transition:background 0.15s; }
+.account-menu-item:hover { background:rgba(255,255,255,0.05); }
+.auth-tab { flex:1; background:transparent; border:none; border-right:1px solid var(--border); color:var(--muted); font-family:'Space Mono',monospace; font-size:11px; padding:11px; cursor:pointer; letter-spacing:1px; transition:all 0.2s; }
+.auth-tab:last-child { border-right:none; }
+.auth-tab[data-active="true"] { color:var(--accent); background:rgba(0,255,136,0.05); border-bottom:2px solid var(--accent); }
+.auth-input { background:var(--bg); border:1px solid var(--border); color:var(--text); font-family:'Space Mono',monospace; font-size:13px; padding:12px 14px; outline:none; width:100%; transition:border-color 0.2s; -webkit-appearance:none; }
+.auth-input:focus { border-color:var(--accent); }
+.auth-input::placeholder { color:var(--muted); }
+.auth-error { font-size:11px; color:var(--accent2); min-height:16px; letter-spacing:0.5px; }
+.auth-submit { background:var(--accent); color:#000; border:none; font-family:'Syne',sans-serif; font-weight:800; font-size:14px; letter-spacing:1px; padding:13px 24px; cursor:pointer; text-transform:uppercase; transition:all 0.2s; width:100%; }
+.auth-submit:hover { background:#00ffaa; }
+.auth-submit:disabled { background:var(--muted); cursor:not-allowed; }
+/* ── Watchlist tags ────────────────────────────────────────────────────── */
+.wl-tag { display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border); padding:5px 10px; font-size:11px; font-weight:700; letter-spacing:1px; transition:border-color 0.15s; }
+.wl-tag:hover { border-color:var(--accent3); }
+.wl-tag-remove { background:none; border:none; color:var(--muted); cursor:pointer; font-size:9px; padding:0; line-height:1; transition:color 0.15s; }
+.wl-tag-remove:hover { color:var(--accent2); }
 @media (max-width: 768px) {
   header { padding: 14px 16px; } .logo { font-size: 18px; } header div:nth-child(2) { display: none; }
   main { padding: 12px; } .grid { grid-template-columns: 1fr; } .chart-wrap { height: 240px; }

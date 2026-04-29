@@ -8,14 +8,25 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.4/luxon.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 <header>
   <div class="logo">SIGNAL<span>SCAN</span></div>
   <div style="font-size:10px;color:var(--muted);letter-spacing:2px;">FREE TECHNICAL ANALYSIS</div>
-  <div style="display:flex;align-items:center;gap:16px;">
+  <div style="display:flex;align-items:center;gap:10px;">
     <button onclick="toggleHowItWorks()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:6px 14px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">HOW IT WORKS</button>
+    <div style="position:relative;">
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button id="headerLoginBtn" class="header-login-btn">LOGIN</button>
+        <span id="headerProTag" style="display:none;background:var(--gold);color:#000;font-size:9px;font-weight:800;padding:2px 7px;letter-spacing:1.5px;font-family:'Syne',sans-serif;">PRO</span>
+      </div>
+      <div id="accountMenu" class="account-menu" style="display:none;">
+        <button class="account-menu-item" onclick="handleManageBilling()">MANAGE BILLING</button>
+        <button class="account-menu-item" style="color:var(--accent2);" onclick="handleSignOut()">SIGN OUT</button>
+      </div>
+    </div>
     <div class="status-dot"></div>
   </div>
 </header>
@@ -140,11 +151,95 @@
       <div style="font-size:12px;color:var(--muted);line-height:1.8;">No golden bull signals detected in current conditions.<br><span style="font-size:11px;">Try during market hours for fresher data.</span></div>
     </div>
   </div>
+
+  <!-- ── Custom Watchlist Scanner (Pro) ─────────────────────────────────── -->
+  <div style="margin-top:40px;padding-top:32px;border-top:2px solid var(--border);">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px;">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;display:flex;align-items:center;gap:10px;">
+          📋 CUSTOM WATCHLIST <span style="color:var(--gold);">SCANNER</span>
+          <span style="background:var(--gold);color:#000;font-size:9px;font-weight:800;padding:3px 8px;letter-spacing:1.5px;font-family:'Syne',sans-serif;vertical-align:middle;">PRO</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:1px;">SCAN YOUR OWN STOCKS &amp; CRYPTO FOR GOLDEN BULL SIGNALS</div>
+      </div>
+    </div>
+
+    <!-- Paywall gate -->
+    <div id="proGate" style="background:var(--surface);border:1px solid var(--border);padding:48px 24px;text-align:center;">
+      <div style="font-size:36px;margin-bottom:16px;opacity:0.35;">🔒</div>
+      <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:16px;letter-spacing:1px;margin-bottom:10px;">PRO FEATURE</div>
+      <div id="gateMsgSub" style="font-size:12px;color:var(--muted);line-height:1.9;margin-bottom:24px;">Upgrade to Pro to unlock custom watchlist scanning.</div>
+      <button id="upgradeBtn" onclick="handleUpgrade()" class="auth-submit" style="display:inline-block;max-width:260px;margin:0 auto;">UPGRADE TO PRO — $9 / MONTH</button>
+      <div style="margin-top:14px;font-size:11px;color:var(--muted);">
+        Already have an account?
+        <button onclick="showAuthModal('login')" style="background:none;border:none;color:var(--accent);font-family:'Space Mono',monospace;font-size:11px;cursor:pointer;padding:0;letter-spacing:0.5px;">LOG IN</button>
+      </div>
+    </div>
+
+    <!-- Pro content -->
+    <div id="proContent" style="display:none;">
+      <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap;">
+        <input id="watchlistInput" class="ticker-input" type="text" placeholder="Add ticker — AAPL, BTC, HIMS..." maxlength="15" style="flex:1;min-width:180px;" />
+        <button onclick="addTicker()" class="analyze-btn" style="white-space:nowrap;">+ ADD</button>
+        <button id="customScanBtn" onclick="runCustomScanner()" class="scan-btn" disabled>🔍 SCAN MY LIST</button>
+        <button onclick="handleManageBilling()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:10px 14px;cursor:pointer;letter-spacing:1px;white-space:nowrap;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--muted)'" onmouseout="this.style.borderColor='var(--border)'">BILLING</button>
+      </div>
+      <div id="watchlistTags" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;min-height:34px;align-items:center;"></div>
+
+      <div id="customScanProgress" style="display:none;margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="customScanStatus">Scanning...</span>
+          <span style="font-size:11px;color:var(--muted);" id="customScanCount">0 / 0</span>
+        </div>
+        <div class="scan-progress-bg"><div class="scan-progress-fill" id="customScanBar"></div></div>
+        <div style="font-size:10px;color:var(--accent);margin-top:6px;min-height:14px;letter-spacing:0.5px;" id="customScanFoundMsg"></div>
+      </div>
+      <div id="customScanHeader" style="display:none;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;"></div>
+      <div id="customScanGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+      <div id="customScanEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
+        <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🔍</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.8;">No golden bull signals in your watchlist right now.</div>
+      </div>
+    </div>
+  </div>
 </main>
+
+<!-- ── Auth Modal ──────────────────────────────────────────────────────────── -->
+<div id="authModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:2000;align-items:center;justify-content:center;backdrop-filter:blur(6px);" onclick="if(event.target===this)hideAuthModal()">
+  <div style="background:var(--surface);border:1px solid var(--border);width:100%;max-width:380px;margin:0 16px;">
+    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;letter-spacing:2px;">ACCOUNT</span>
+      <button onclick="hideAuthModal()" style="background:transparent;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:0;">&times;</button>
+    </div>
+    <div style="display:flex;border-bottom:1px solid var(--border);">
+      <button id="authTabLogin"  data-active="true"  onclick="switchAuthTab('login')"  class="auth-tab">LOGIN</button>
+      <button id="authTabSignup" data-active="false" onclick="switchAuthTab('signup')" class="auth-tab">SIGN UP</button>
+    </div>
+    <div style="padding:24px;">
+      <form id="loginForm" onsubmit="handleLogin(event)" style="display:flex;flex-direction:column;gap:12px;">
+        <input class="auth-input" id="loginEmail"    type="email"    placeholder="Email"    required autocomplete="email">
+        <input class="auth-input" id="loginPassword" type="password" placeholder="Password" required autocomplete="current-password">
+        <div id="loginError" class="auth-error"></div>
+        <button id="loginSubmit" type="submit" class="auth-submit">SIGN IN</button>
+      </form>
+      <form id="signupForm" onsubmit="handleSignup(event)" style="display:none;flex-direction:column;gap:12px;">
+        <input class="auth-input" id="signupEmail"    type="email"    placeholder="Email"              required autocomplete="email">
+        <input class="auth-input" id="signupPassword" type="password" placeholder="Password (min 6 chars)" required minlength="6" autocomplete="new-password">
+        <div id="signupError" class="auth-error"></div>
+        <button id="signupSubmit" type="submit" class="auth-submit">CREATE ACCOUNT</button>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div style="text-align:center;padding:24px 32px;font-size:10px;color:#3a4a5a;letter-spacing:0.5px;border-top:1px solid #1c2330;margin-top:32px;">FOR INFORMATIONAL PURPOSES ONLY. NOT FINANCIAL ADVICE.</div>
+<script src="js/config.js"></script>
 <script src="js/calc.js"></script>
 <script src="js/analysis.js"></script>
 <script src="js/scanner.js"></script>
 <script src="js/app.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/watchlist.js"></script>
+<script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
 </html>
