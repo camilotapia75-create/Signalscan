@@ -250,10 +250,3 @@ function loadTickerAndAnalyze(ticker) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   setTimeout(() => runAnalysis(), 400);
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-  const scanBtn = document.getElementById('scanBtn');
-  if (scanBtn) scanBtn.addEventListener('click', runScanner);
-  const customScanBtn = document.getElementById('customScanBtn');
-  if (customScanBtn) customScanBtn.addEventListener('click', runCustomScanner);
-});
