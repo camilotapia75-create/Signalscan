@@ -149,10 +149,8 @@ async function _runScanCore(tickers, ids) {
   const emptyMsg = document.getElementById(emptyId);
   const header   = document.getElementById(headerId);
 
-  if (!btn || !progress || !grid) return;
-
   btn.disabled = true;
-  btn.textContent = ‘Scanning...’;
+  btn.textContent = ‘⏳ Scanning...’;
   progress.style.display = ‘block’;
   if (emptyMsg) emptyMsg.style.display = ‘none’;
   if (header)   header.style.display   = ‘none’;
@@ -169,27 +167,20 @@ async function _runScanCore(tickers, ids) {
   if (countEl) countEl.textContent = `0 / ${total}`;
   console.log(`[SCANNER] Starting scan of ${total} tickers using ${getScanTimeframe()}`);
 
-  // Process 3 tickers concurrently to cut scan time from ~4min to ~45s
-  const BATCH = 3;
-  for (let i = 0; i < total; i += BATCH) {
-    const batch = tickers.slice(i, i + BATCH);
-    if (statusEl) statusEl.textContent = `Scanning ${batch.join(‘, ‘)}...`;
-
-    const results = await Promise.all(batch.map(t => quickAnalyzeForScan(t)));
-
-    for (const r of results) {
-      done++;
-      if (fill)    fill.style.width    = `${Math.round(done / total * 100)}%`;
-      if (countEl) countEl.textContent = `${done} / ${total}`;
-      if (r && r._networkFail) { failed++; }
-      else if (r && r.isGoldenBull) {
-        bulls.push(r);
-        if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? ‘s’ : ‘’} so far...`;
-        grid.insertAdjacentHTML(‘beforeend’, renderScanCard(r));
-      }
+  for (let i = 0; i < total; i++) {
+    const ticker = tickers[i];
+    if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
+    const r = await quickAnalyzeForScan(ticker);
+    done++;
+    if (fill)    fill.style.width          = `${Math.round(done / total * 100)}%`;
+    if (countEl) countEl.textContent       = `${done} / ${total}`;
+    if (r && r._networkFail) { failed++; }
+    else if (r && r.isGoldenBull) {
+      bulls.push(r);
+      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? ‘s’ : ‘’} so far...`;
+      grid.insertAdjacentHTML(‘beforeend’, renderScanCard(r));
     }
-
-    if (i + BATCH < total) await new Promise(r => setTimeout(r, 300));
+    if (i < total - 1) await new Promise(res => setTimeout(res, 400));
   }
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
