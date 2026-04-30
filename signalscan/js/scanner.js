@@ -205,8 +205,9 @@ function runScanner() {
 }
 
 function runCustomScanner() {
-  if (!window._watchlistTickers || window._watchlistTickers.length === 0) return;
-  return _runScanCore(window._watchlistTickers, {
+  const tickers = window._watchlistTickers || [];
+  if (tickers.length === 0) return;
+  return _runScanCore(tickers, {
     btnId: ‘customScanBtn’,       progressId: ‘customScanProgress’, gridId: ‘customScanGrid’,
     emptyId: ‘customScanEmpty’,   headerId: ‘customScanHeader’,     foundMsgId: ‘customScanFoundMsg’,
     statusId: ‘customScanStatus’, countId: ‘customScanCount’,       barId: ‘customScanBar’,

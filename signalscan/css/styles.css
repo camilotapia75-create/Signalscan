@@ -107,6 +107,14 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .auth-submit { background:var(--accent); color:#000; border:none; font-family:'Syne',sans-serif; font-weight:800; font-size:14px; letter-spacing:1px; padding:13px 24px; cursor:pointer; text-transform:uppercase; transition:all 0.2s; width:100%; }
 .auth-submit:hover { background:#00ffaa; }
 .auth-submit:disabled { background:var(--muted); cursor:not-allowed; }
+/* ── Watchlist list tabs ────────────────────────────────────────────────── */
+.wl-list-tab { background:transparent; border:1px solid var(--border); color:var(--muted); font-family:'Space Mono',monospace; font-size:10px; padding:6px 14px; cursor:pointer; letter-spacing:1px; transition:all 0.15s; white-space:nowrap; }
+.wl-list-tab:hover:not(.active) { border-color:var(--text); color:var(--text); }
+.wl-list-tab.active { background:var(--gold); border-color:var(--gold); color:#000; font-weight:700; }
+.wl-list-new { border-style:dashed; }
+.wl-list-del { border-color:transparent; color:var(--muted); }
+.wl-list-del:hover { border-color:var(--accent2); color:var(--accent2); }
+
 /* ── Watchlist tags ────────────────────────────────────────────────────── */
 .wl-tag { display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border); padding:5px 10px; font-size:11px; font-weight:700; letter-spacing:1px; transition:border-color 0.15s; }
 .wl-tag:hover { border-color:var(--accent3); }
