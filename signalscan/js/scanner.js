@@ -150,11 +150,11 @@ async function _runScanCore(tickers, ids) {
   const header   = document.getElementById(headerId);
 
   btn.disabled = true;
-  btn.textContent = ‘⏳ Scanning...’;
-  progress.style.display = ‘block’;
-  if (emptyMsg) emptyMsg.style.display = ‘none’;
-  if (header)   header.style.display   = ‘none’;
-  grid.innerHTML = ‘’;
+  btn.textContent = '⏳ Scanning...';
+  progress.style.display = 'block';
+  if (emptyMsg) emptyMsg.style.display = 'none';
+  if (header)   header.style.display   = 'none';
+  grid.innerHTML = '';
 
   const total    = tickers.length;
   let done = 0, failed = 0;
@@ -177,8 +177,8 @@ async function _runScanCore(tickers, ids) {
     if (r && r._networkFail) { failed++; }
     else if (r && r.isGoldenBull) {
       bulls.push(r);
-      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? ‘s’ : ‘’} so far...`;
-      grid.insertAdjacentHTML(‘beforeend’, renderScanCard(r));
+      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
+      grid.insertAdjacentHTML('beforeend', renderScanCard(r));
     }
     if (i < total - 1) await new Promise(res => setTimeout(res, 400));
   }
@@ -190,32 +190,32 @@ async function _runScanCore(tickers, ids) {
 
   if (bulls.length === 0) {
     if (emptyMsg) {
-      emptyMsg.style.display = ‘block’;
-      const msgEl = emptyMsg.querySelector(‘div:last-child’);
+      emptyMsg.style.display = 'block';
+      const msgEl = emptyMsg.querySelector('div:last-child');
       if (msgEl) {
         if (allFailed || mostFailed) {
-          msgEl.innerHTML = `<span style="color:#ff6b6b;">Network error — ${failed} tickers couldn’t load.</span><br><span style="font-size:11px;color:var(--muted);">Check your connection and try again.</span>`;
+          msgEl.innerHTML = `<span style="color:#ff6b6b;">Network error — ${failed} tickers couldn't load.</span><br><span style="font-size:11px;color:var(--muted);">Check your connection and try again.</span>`;
         } else {
-          msgEl.innerHTML = `No golden bull signals in current market conditions.${failed > 0 ? `<br><span style="font-size:11px;color:var(--muted);">${failed} ticker${failed !== 1 ? ‘s’ : ‘’} couldn’t load.</span>` : ‘’}`;
+          msgEl.innerHTML = `No golden bull signals in current market conditions.${failed > 0 ? `<br><span style="font-size:11px;color:var(--muted);">${failed} ticker${failed !== 1 ? 's' : ''} couldn't load.</span>` : ''}`;
         }
       }
     }
   } else {
-    if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? ‘S’ : ‘’} FOUND`; header.style.display = ‘block’; }
+    if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`; header.style.display = 'block'; }
   }
 
-  if (foundMsg) foundMsg.textContent = (allFailed || mostFailed) ? `Network error — ${failed} of ${total} tickers failed to load` : failed > 0 ? `${failed} ticker${failed !== 1 ? ‘s’ : ‘’} couldn’t load (network)` : ‘’;
-  progress.style.display = ‘none’;
+  if (foundMsg) foundMsg.textContent = (allFailed || mostFailed) ? `Network error — ${failed} of ${total} tickers failed to load` : failed > 0 ? `${failed} ticker${failed !== 1 ? 's' : ''} couldn't load (network)` : '';
+  progress.style.display = 'none';
   btn.disabled  = false;
-  btn.textContent = `${btnLabel} (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ‘’})`;
+  btn.textContent = `${btnLabel} (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ''})`;
 }
 
 function runScanner() {
   return _runScanCore(SCAN_UNIVERSE, {
-    btnId: ‘scanBtn’,         progressId: ‘scanProgress’,    gridId: ‘scanResultsGrid’,
-    emptyId: ‘scanEmpty’,     headerId: ‘scanResultsHeader’, foundMsgId: ‘scanFoundMsg’,
-    statusId: ‘scanStatusText’, countId: ‘scanProgressCount’, barId: ‘scanProgressBar’,
-    btnLabel: ‘🔍 SCAN AGAIN’,
+    btnId: 'scanBtn',         progressId: 'scanProgress',    gridId: 'scanResultsGrid',
+    emptyId: 'scanEmpty',     headerId: 'scanResultsHeader', foundMsgId: 'scanFoundMsg',
+    statusId: 'scanStatusText', countId: 'scanProgressCount', barId: 'scanProgressBar',
+    btnLabel: '🔍 SCAN AGAIN',
   });
 }
 
@@ -223,10 +223,10 @@ function runCustomScanner() {
   const tickers = window._watchlistTickers || [];
   if (tickers.length === 0) return;
   return _runScanCore(tickers, {
-    btnId: ‘customScanBtn’,       progressId: ‘customScanProgress’, gridId: ‘customScanGrid’,
-    emptyId: ‘customScanEmpty’,   headerId: ‘customScanHeader’,     foundMsgId: ‘customScanFoundMsg’,
-    statusId: ‘customScanStatus’, countId: ‘customScanCount’,       barId: ‘customScanBar’,
-    btnLabel: ‘🔍 SCAN AGAIN’,
+    btnId: 'customScanBtn',       progressId: 'customScanProgress', gridId: 'customScanGrid',
+    emptyId: 'customScanEmpty',   headerId: 'customScanHeader',     foundMsgId: 'customScanFoundMsg',
+    statusId: 'customScanStatus', countId: 'customScanCount',       barId: 'customScanBar',
+    btnLabel: '🔍 SCAN AGAIN',
   });
 }
 
