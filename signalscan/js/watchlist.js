@@ -40,9 +40,10 @@ function renderListTabs() {
   if (!container) return;
   const names = Object.keys(_allLists);
   container.innerHTML =
-    names.map(name =>
-      `<button class="wl-list-tab${name === _activeList ? ' active' : ''}" onclick="switchList(${JSON.stringify(name)})">${name}</button>`
-    ).join('') +
+    names.map(name => {
+      const escaped = name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+      return `<button class="wl-list-tab${name === _activeList ? ' active' : ''}" data-list="${escaped}" onclick="switchList(this.dataset.list)">${name}</button>`;
+    }).join('') +
     `<button class="wl-list-tab wl-list-new" onclick="createNewList()">+ NEW LIST</button>` +
     (names.length > 1
       ? `<button class="wl-list-tab wl-list-del" onclick="deleteCurrentList()">✕ DELETE</button>`

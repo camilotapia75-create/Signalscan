@@ -136,7 +136,7 @@
           <option value="1wk|1y">1Y WEEKLY</option>
           <option value="1d|6mo">6M DAILY</option>
         </select>
-        <button class="scan-btn" id="scanBtn" onclick="runScanner()">🔍 SCAN MARKET</button>
+        <button class="scan-btn" id="scanBtn">🔍 SCAN MARKET</button>
       </div>
     </div>
     <div id="scanProgress" style="display:none;margin-bottom:20px;">
@@ -182,7 +182,7 @@
       <div style="display:flex;gap:8px;margin-bottom:14px;align-items:center;flex-wrap:wrap;">
         <input id="watchlistInput" class="ticker-input" type="text" placeholder="Add ticker — AAPL, BTC, HIMS..." maxlength="15" style="flex:1;min-width:180px;" />
         <button onclick="addTicker()" class="analyze-btn" style="white-space:nowrap;">+ ADD</button>
-        <button id="customScanBtn" onclick="runCustomScanner()" class="scan-btn" disabled>🔍 SCAN MY LIST</button>
+        <button id="customScanBtn" class="scan-btn" disabled>🔍 SCAN MY LIST</button>
         <button onclick="handleManageBilling()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:10px 14px;cursor:pointer;letter-spacing:1px;white-space:nowrap;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--muted)'" onmouseout="this.style.borderColor='var(--border)'">BILLING</button>
       </div>
       <div id="watchlistTags" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;min-height:34px;align-items:center;"></div>
@@ -234,13 +234,13 @@
 </div>
 
 <div style="text-align:center;padding:24px 32px;font-size:10px;color:#3a4a5a;letter-spacing:0.5px;border-top:1px solid #1c2330;margin-top:32px;">FOR INFORMATIONAL PURPOSES ONLY. NOT FINANCIAL ADVICE.</div>
-<script src="js/config.js"></script>
-<script src="js/calc.js"></script>
-<script src="js/analysis.js"></script>
-<script src="js/scanner.js"></script>
-<script src="js/app.js"></script>
-<script src="js/auth.js"></script>
-<script src="js/watchlist.js"></script>
+<script src="js/config.js?v=5"></script>
+<script src="js/calc.js?v=5"></script>
+<script src="js/analysis.js?v=5"></script>
+<script src="js/scanner.js?v=5"></script>
+<script src="js/app.js?v=5"></script>
+<script src="js/auth.js?v=5"></script>
+<script src="js/watchlist.js?v=5"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
 </html>
