@@ -48,14 +48,24 @@ async function initAuth() {
     renderAuthState();
   });
 
-  // After a successful Stripe checkout Stripe redirects here with ?subscribed=true.
-  // Poll briefly so the webhook has time to write the subscription row.
+  // After Stripe checkout, sync subscription directly rather than waiting for webhook
   const params = new URLSearchParams(window.location.search);
   if (params.get('subscribed') === 'true') {
-    for (let i = 0; i < 5; i++) {
-      await new Promise(r => setTimeout(r, 1200));
+    if (currentUser) {
+      try {
+        const r = await fetch('/api/stripe/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: currentUser.id, email: currentUser.email }),
+        });
+        const d = await r.json();
+        if (d.subscribed) await loadSub();
+      } catch (_) {}
+    }
+    // Fallback poll in case sync was slow
+    for (let i = 0; i < 4 && !isSubscribed(); i++) {
+      await new Promise(r => setTimeout(r, 1500));
       await loadSub();
-      if (isSubscribed()) break;
     }
     window.history.replaceState({}, '', window.location.pathname);
   }
@@ -158,12 +168,18 @@ async function handleSignup(e) {
 
   btn.disabled = true; btn.textContent = 'Creating account...';
   try {
-    const { error } = await getSupabase().auth.signUp({ email, password });
+    const { data, error } = await getSupabase().auth.signUp({ email, password });
     if (error) throw error;
-    document.getElementById('signupForm').innerHTML =
-      `<div style="padding:20px;text-align:center;color:var(--accent);font-size:12px;line-height:1.8;letter-spacing:1px;">
-         Check your email to confirm your account,<br>then log in.
-       </div>`;
+    if (data.session) {
+      // Email confirmation is off — user is immediately logged in
+      hideAuthModal();
+    } else {
+      // Email confirmation is on — need to verify before logging in
+      document.getElementById('signupForm').innerHTML =
+        `<div style="padding:20px;text-align:center;color:var(--accent);font-size:12px;line-height:1.8;letter-spacing:1px;">
+           Account created! Check your email for a confirmation link, then log in.
+         </div>`;
+    }
   } catch (err) {
     errEl.textContent = err.message;
     btn.disabled = false; btn.textContent = 'CREATE ACCOUNT';
