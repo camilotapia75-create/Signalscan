@@ -228,7 +228,7 @@ async function handleUpgrade() {
     throw new Error(data.error || 'Unknown error');
   } catch (err) {
     alert('Checkout unavailable: ' + err.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'UPGRADE TO PRO — $9/MO'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'UPGRADE TO PRO — $5.99/MO'; }
   }
 }
 

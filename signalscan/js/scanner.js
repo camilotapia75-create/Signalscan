@@ -149,8 +149,10 @@ async function _runScanCore(tickers, ids) {
   const emptyMsg = document.getElementById(emptyId);
   const header   = document.getElementById(headerId);
 
+  if (!btn || !progress || !grid) return;
+
   btn.disabled = true;
-  btn.textContent = ‘⏳ Scanning...’;
+  btn.textContent = ‘Scanning...’;
   progress.style.display = ‘block’;
   if (emptyMsg) emptyMsg.style.display = ‘none’;
   if (header)   header.style.display   = ‘none’;
@@ -167,29 +169,51 @@ async function _runScanCore(tickers, ids) {
   if (countEl) countEl.textContent = `0 / ${total}`;
   console.log(`[SCANNER] Starting scan of ${total} tickers using ${getScanTimeframe()}`);
 
-  for (let i = 0; i < total; i++) {
-    const ticker = tickers[i];
-    if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
-    const r = await quickAnalyzeForScan(ticker);
-    done++;
-    if (fill)    fill.style.width          = `${Math.round(done / total * 100)}%`;
-    if (countEl) countEl.textContent       = `${done} / ${total}`;
-    if (r && r._networkFail) { failed++; }
-    else if (r && r.isGoldenBull) {
-      bulls.push(r);
-      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? ‘s’ : ‘’} so far...`;
-      grid.insertAdjacentHTML(‘beforeend’, renderScanCard(r));
+  // Process 3 tickers concurrently to cut scan time from ~4min to ~45s
+  const BATCH = 3;
+  for (let i = 0; i < total; i += BATCH) {
+    const batch = tickers.slice(i, i + BATCH);
+    if (statusEl) statusEl.textContent = `Scanning ${batch.join(‘, ‘)}...`;
+
+    const results = await Promise.all(batch.map(t => quickAnalyzeForScan(t)));
+
+    for (const r of results) {
+      done++;
+      if (fill)    fill.style.width    = `${Math.round(done / total * 100)}%`;
+      if (countEl) countEl.textContent = `${done} / ${total}`;
+      if (r && r._networkFail) { failed++; }
+      else if (r && r.isGoldenBull) {
+        bulls.push(r);
+        if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? ‘s’ : ‘’} so far...`;
+        grid.insertAdjacentHTML(‘beforeend’, renderScanCard(r));
+      }
     }
-    if (i < total - 1) await new Promise(res => setTimeout(res, 600));
+
+    if (i + BATCH < total) await new Promise(r => setTimeout(r, 300));
   }
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
+
+  const allFailed = failed > 0 && failed === done;
+  const mostFailed = failed > total * 0.7;
+
   if (bulls.length === 0) {
-    if (emptyMsg) emptyMsg.style.display = ‘block’;
+    if (emptyMsg) {
+      emptyMsg.style.display = ‘block’;
+      const msgEl = emptyMsg.querySelector(‘div:last-child’);
+      if (msgEl) {
+        if (allFailed || mostFailed) {
+          msgEl.innerHTML = `<span style="color:#ff6b6b;">Network error — ${failed} tickers couldn’t load.</span><br><span style="font-size:11px;color:var(--muted);">Check your connection and try again.</span>`;
+        } else {
+          msgEl.innerHTML = `No golden bull signals in current market conditions.${failed > 0 ? `<br><span style="font-size:11px;color:var(--muted);">${failed} ticker${failed !== 1 ? ‘s’ : ‘’} couldn’t load.</span>` : ‘’}`;
+        }
+      }
+    }
   } else {
     if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? ‘S’ : ‘’} FOUND`; header.style.display = ‘block’; }
   }
-  if (foundMsg) foundMsg.textContent = failed > 0 ? `${failed} ticker${failed !== 1 ? ‘s’ : ‘’} couldn’t load (network)` : ‘’;
+
+  if (foundMsg) foundMsg.textContent = (allFailed || mostFailed) ? `Network error — ${failed} of ${total} tickers failed to load` : failed > 0 ? `${failed} ticker${failed !== 1 ? ‘s’ : ‘’} couldn’t load (network)` : ‘’;
   progress.style.display = ‘none’;
   btn.disabled  = false;
   btn.textContent = `${btnLabel} (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ‘’})`;
