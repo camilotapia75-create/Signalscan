@@ -125,6 +125,18 @@
       <div class="ai-analysis"><div class="sr-title">AI ANALYSIS</div><div class="ai-text" id="aiText">Waiting for analysis...</div></div>
     </div>
   </div>
+  <!-- ── Live Carousel ─────────────────────────────────────────────────────── -->
+  <div id="carouselSection" style="display:none;padding:24px 32px 8px;border-top:1px solid var(--border);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <div>
+        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;">⚡ LIVE GOLDEN BULL SIGNALS</span>
+        <span id="carouselCount" style="margin-left:10px;font-size:10px;color:var(--accent);letter-spacing:1px;"></span>
+      </div>
+      <span style="font-size:10px;color:var(--muted);letter-spacing:1px;">UPDATED <span id="carouselAge"></span></span>
+    </div>
+    <div id="carouselTrack" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:10px;"></div>
+  </div>
+
   <div class="scanner-section">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px;">
       <div>
@@ -203,6 +215,27 @@
       </div>
     </div>
   </div>
+
+  <!-- ── Hall of Fame ───────────────────────────────────────────────────────── -->
+  <div id="hofSection" style="display:none;padding:32px;border-top:1px solid var(--border);">
+    <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;">🏆 GOLDEN BULL HALL OF FAME</div>
+    <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:20px;">TRACKING FOR <span id="hofDays">0</span> DAYS · <span id="hofTotalCount">0</span> TOTAL SIGNALS DETECTED</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);">
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">RETURN</th>
+          </tr>
+        </thead>
+        <tbody id="hofTbody"></tbody>
+      </table>
+    </div>
+    <button id="hofReturnBtn" onclick="loadHofReturns()" style="margin-top:14px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">LOAD RETURNS</button>
+  </div>
 </main>
 
 <!-- ── Auth Modal ──────────────────────────────────────────────────────────── -->
@@ -234,13 +267,13 @@
 </div>
 
 <div style="text-align:center;padding:24px 32px;font-size:10px;color:#3a4a5a;letter-spacing:0.5px;border-top:1px solid #1c2330;margin-top:32px;">FOR INFORMATIONAL PURPOSES ONLY. NOT FINANCIAL ADVICE.</div>
-<script src="js/config.js?v=8"></script>
-<script src="js/calc.js?v=8"></script>
-<script src="js/analysis.js?v=8"></script>
-<script src="js/scanner.js?v=8"></script>
-<script src="js/app.js?v=8"></script>
-<script src="js/auth.js?v=8"></script>
-<script src="js/watchlist.js?v=8"></script>
+<script src="js/config.js?v=9"></script>
+<script src="js/calc.js?v=9"></script>
+<script src="js/analysis.js?v=9"></script>
+<script src="js/scanner.js?v=9"></script>
+<script src="js/app.js?v=9"></script>
+<script src="js/auth.js?v=9"></script>
+<script src="js/watchlist.js?v=9"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
 </html>

@@ -127,3 +127,15 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
   .search-row { gap: 8px; } .analyze-btn { width: 100%; } .timeframe-select { flex: 1; }
   #scanResultsGrid { grid-template-columns: 1fr !important; }
 }
+
+/* ── Carousel cards ─────────────────────────────────────────────────────── */
+#carouselTrack { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+#carouselTrack::-webkit-scrollbar { height: 4px; }
+#carouselTrack::-webkit-scrollbar-track { background: transparent; }
+#carouselTrack::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.carousel-card { flex: 0 0 160px; background: var(--surface); border: 1px solid var(--border); padding: 14px; cursor: pointer; transition: border-color 0.15s, transform 0.15s; }
+.carousel-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+
+/* ── Hall of Fame table ──────────────────────────────────────────────────── */
+#hofTbody tr { border-bottom: 1px solid rgba(28,35,48,0.6); transition: background 0.1s; }
+#hofTbody tr:hover { background: rgba(255,255,255,0.03); }

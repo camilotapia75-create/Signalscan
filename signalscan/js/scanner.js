@@ -108,7 +108,12 @@ async function quickAnalyzeForScan(ticker) {
     const avgScore = (rev.score + cont.score) / 2;
     const conviction = Math.round(Math.min(100, Math.max(50, 50 + (avgScore - 0.2) / 0.8 * 50)));
     const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
-    return { ticker, price: indData.lastClose, isGoldenBull, conviction, topSignal, revScore: rev.score, contScore: cont.score };
+    const spark = closes.slice(-30);
+    const nearestRes = sr.resistance.filter(r => r.price > indData.lastClose)[0];
+    const estimatedUpside = nearestRes
+      ? (nearestRes.price - indData.lastClose) / indData.lastClose * 100
+      : Math.max(0, (yearHigh - indData.lastClose) / indData.lastClose * 100);
+    return { ticker, price: indData.lastClose, isGoldenBull, conviction, topSignal, revScore: rev.score, contScore: cont.score, spark, estimatedUpside };
   } catch (e) {
     console.error(`[SCANNER] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
@@ -184,6 +189,7 @@ async function _runScanCore(tickers, ids) {
   }
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
+  if (bulls.length > 0) { saveCarousel(bulls); hofRecord(bulls); renderCarouselFromData({ ts: Date.now(), bulls }); renderHoF(); }
 
   const allFailed = failed > 0 && failed === done;
   const mostFailed = failed > total * 0.7;
@@ -250,3 +256,157 @@ function loadTickerAndAnalyze(ticker) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
   setTimeout(() => runAnalysis(), 400);
 }
+
+// ── Carousel ──────────────────────────────────────────────────────────────────
+
+const CAROUSEL_KEY = 'signalscan_carousel';
+const CAROUSEL_TTL = 12 * 60 * 60 * 1000;
+
+function saveCarousel(bulls) {
+  try {
+    localStorage.setItem(CAROUSEL_KEY, JSON.stringify({
+      ts: Date.now(),
+      bulls: bulls.slice(0, 10).map(b => ({
+        ticker: b.ticker, price: b.price, conviction: b.conviction,
+        topSignal: b.topSignal, spark: b.spark, estimatedUpside: b.estimatedUpside,
+      })),
+    }));
+  } catch (_) {}
+}
+
+function makeSpark(spark) {
+  if (!spark || spark.length < 2) return '';
+  const min = Math.min(...spark), max = Math.max(...spark), range = max - min || 1;
+  const w = 120, h = 38;
+  const pts = spark.map((c, i) =>
+    `${((i / (spark.length - 1)) * w).toFixed(1)},${(h - ((c - min) / range) * h).toFixed(1)}`
+  ).join(' ');
+  const color = spark[spark.length - 1] >= spark[0] ? '#00ff88' : '#ff3d6b';
+  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:38px;display:block;"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+function renderCarouselCard(b) {
+  const upside = b.estimatedUpside > 0.5 ? `+${b.estimatedUpside.toFixed(1)}%` : '—';
+  const price  = b.price < 10 ? b.price.toFixed(4) : b.price.toFixed(2);
+  return `<div class="carousel-card" onclick="loadTickerAndAnalyze('${b.ticker}')">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
+      <span style="font-weight:700;font-size:1em;font-family:'Syne',sans-serif;">${b.ticker}</span>
+      <span style="font-size:0.7em;color:#00ff88;font-weight:700;">${upside}</span>
+    </div>
+    <div style="margin-bottom:6px;">${makeSpark(b.spark)}</div>
+    <div style="font-size:0.75em;color:var(--muted);margin-bottom:8px;">$${price}</div>
+    <div style="background:rgba(0,255,136,0.12);height:3px;border-radius:2px;margin-bottom:4px;">
+      <div style="background:#00ff88;height:3px;border-radius:2px;width:${b.conviction}%;"></div>
+    </div>
+    <div style="font-size:0.65em;color:var(--muted);letter-spacing:0.5px;margin-bottom:6px;">${b.conviction}% CONVICTION</div>
+    ${b.topSignal ? `<div style="font-size:0.65em;color:#8a9aaa;line-height:1.4;">${b.topSignal.substring(0, 75)}${b.topSignal.length > 75 ? '…' : ''}</div>` : ''}
+  </div>`;
+}
+
+function renderCarouselFromData(data) {
+  const section = document.getElementById('carouselSection');
+  const track   = document.getElementById('carouselTrack');
+  const hdr     = document.getElementById('carouselAge');
+  if (!section || !track || !data.bulls?.length) return;
+  const hours = Math.floor((Date.now() - data.ts) / 3600000);
+  if (hdr) hdr.textContent = hours === 0 ? 'just now' : `${hours}h ago`;
+  const countEl = document.getElementById('carouselCount');
+  if (countEl) countEl.textContent = `${data.bulls.length} SIGNAL${data.bulls.length !== 1 ? 'S' : ''}`;
+  track.innerHTML = data.bulls.map(renderCarouselCard).join('');
+  section.style.display = 'block';
+}
+
+function initCarousel() {
+  try {
+    const raw = localStorage.getItem(CAROUSEL_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Date.now() - data.ts > CAROUSEL_TTL || !data.bulls?.length) return;
+    renderCarouselFromData(data);
+  } catch (_) {}
+}
+
+// ── Hall of Fame ─────────────────────────────────────────────────────────────
+
+const HOF_KEY = 'signalscan_hof';
+
+function hofRecord(bulls) {
+  try {
+    const raw   = localStorage.getItem(HOF_KEY);
+    const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
+    const now   = Date.now();
+    for (const b of bulls) {
+      const dup = store.signals.find(s => s.ticker === b.ticker && now - s.ts < 7 * 86400000);
+      if (!dup) store.signals.push({ ticker: b.ticker, ts: now, price: b.price, conviction: b.conviction });
+    }
+    store.signals = store.signals.slice(-500);
+    localStorage.setItem(HOF_KEY, JSON.stringify(store));
+  } catch (_) {}
+}
+
+function renderHoF() {
+  try {
+    const raw = localStorage.getItem(HOF_KEY);
+    if (!raw) return;
+    const store = JSON.parse(raw);
+    if (!store.signals?.length) return;
+    const section = document.getElementById('hofSection');
+    if (!section) return;
+    const days = Math.max(0, Math.floor((Date.now() - store.since) / 86400000));
+    const daysEl = document.getElementById('hofDays');
+    const countEl = document.getElementById('hofTotalCount');
+    if (daysEl) daysEl.textContent = days;
+    if (countEl) countEl.textContent = store.signals.length;
+    const tbody = document.getElementById('hofTbody');
+    if (tbody) {
+      const recent = store.signals.slice().reverse().slice(0, 30);
+      tbody.innerHTML = recent.map(s => {
+        const d   = new Date(s.ts);
+        const lbl = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const price = s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2);
+        return `<tr>
+          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+          <td style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+          <td style="padding:7px 8px;">$${price}</td>
+          <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+          <td id="hret-${s.ticker}-${s.ts}" style="padding:7px 8px;color:var(--muted);">—</td>
+        </tr>`;
+      }).join('');
+    }
+    section.style.display = 'block';
+  } catch (_) {}
+}
+
+async function loadHofReturns() {
+  const raw = localStorage.getItem(HOF_KEY);
+  if (!raw) return;
+  const store = JSON.parse(raw);
+  const signals = store.signals.slice().reverse().slice(0, 20);
+  const btn = document.getElementById('hofReturnBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
+  await Promise.all(signals.map(async s => {
+    try {
+      const data = await fetchStockData(s.ticker, '1d|5d');
+      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      if (!cur) return;
+      const ret = (cur - s.price) / s.price * 100;
+      const el  = document.getElementById(`hret-${s.ticker}-${s.ts}`);
+      if (el) {
+        el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
+        el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      }
+    } catch (_) {}
+  }));
+  if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  initCarousel();
+  renderHoF();
+  // Pre-load NVDA so new visitors see the analysis tool in action
+  const input = document.getElementById('tickerInput');
+  if (input && !input.value.trim()) {
+    input.value = 'NVDA';
+    setTimeout(runAnalysis, 700);
+  }
+});
