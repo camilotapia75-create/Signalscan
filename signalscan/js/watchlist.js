@@ -1,7 +1,8 @@
 // Requires: auth.js loaded before this file (uses getSupabase, currentUser, isSubscribed)
 
-let _allLists   = {};   // { listName: tickers[] }
+let _allLists  = {};    // { listName: tickers[] }
 let _activeList = null; // currently selected list name
+let _multiList  = false; // true only when DB has the new multi-list schema (list_name column)
 
 function _currentTickers() {
   return (_activeList && _allLists[_activeList]) ? _allLists[_activeList] : [];
@@ -13,22 +14,39 @@ function _syncWindow() {
 
 async function loadWatchlist() {
   if (!currentUser || !isSubscribed()) return;
-  const { data } = await getSupabase()
+  const sb = getSupabase();
+
+  // Probe for new multi-list schema (has list_name column)
+  const { data, error } = await sb
     .from('watchlists')
     .select('list_name,tickers')
     .eq('user_id', currentUser.id);
 
   _allLists = {};
-  if (data && data.length > 0) {
-    for (const row of data) {
-      _allLists[row.list_name || 'My Watchlist'] = row.tickers || [];
-    }
-    if (!_activeList || !_allLists[_activeList]) {
-      _activeList = Object.keys(_allLists)[0];
+
+  if (!error) {
+    // New schema present
+    _multiList = true;
+    if (data && data.length > 0) {
+      for (const row of data) {
+        _allLists[row.list_name || 'My Watchlist'] = row.tickers || [];
+      }
+    } else {
+      _allLists['My Watchlist'] = [];
     }
   } else {
-    _allLists['My Watchlist'] = [];
-    _activeList = 'My Watchlist';
+    // Old schema: user_id primary key only, no list_name column
+    _multiList = false;
+    const { data: d } = await sb
+      .from('watchlists')
+      .select('tickers')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    _allLists['My Watchlist'] = d?.tickers || [];
+  }
+
+  if (!_activeList || !_allLists[_activeList]) {
+    _activeList = Object.keys(_allLists)[0] || 'My Watchlist';
   }
   _syncWindow();
   renderListTabs();
@@ -39,15 +57,16 @@ function renderListTabs() {
   const container = document.getElementById('watchlistListTabs');
   if (!container) return;
   const names = Object.keys(_allLists);
-  container.innerHTML =
-    names.map(name => {
-      const escaped = name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-      return `<button class="wl-list-tab${name === _activeList ? ' active' : ''}" data-list="${escaped}" onclick="switchList(this.dataset.list)">${name}</button>`;
-    }).join('') +
-    `<button class="wl-list-tab wl-list-new" onclick="createNewList()">+ NEW LIST</button>` +
-    (names.length > 1
-      ? `<button class="wl-list-tab wl-list-del" onclick="deleteCurrentList()">✕ DELETE</button>`
-      : '');
+  const tabs = names.map(name => {
+    const escaped = name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return `<button class="wl-list-tab${name === _activeList ? ' active' : ''}" data-list="${escaped}" onclick="switchList(this.dataset.list)">${name}</button>`;
+  }).join('');
+
+  container.innerHTML = _multiList
+    ? tabs +
+      `<button class="wl-list-tab wl-list-new" onclick="createNewList()">+ NEW LIST</button>` +
+      (names.length > 1 ? `<button class="wl-list-tab wl-list-del" onclick="deleteCurrentList()">✕ DELETE</button>` : '')
+    : tabs;
 }
 
 function switchList(name) {
@@ -59,6 +78,7 @@ function switchList(name) {
 }
 
 async function createNewList() {
+  if (!_multiList) return;
   const name = prompt('Name for the new list:');
   if (!name || !name.trim()) return;
   const trimmed = name.trim().substring(0, 40);
@@ -72,6 +92,7 @@ async function createNewList() {
 }
 
 async function deleteCurrentList() {
+  if (!_multiList) return;
   const names = Object.keys(_allLists);
   if (names.length <= 1) { alert("You can't delete your only list."); return; }
   if (!confirm(`Delete "${_activeList}"? This cannot be undone.`)) return;
@@ -91,23 +112,36 @@ function renderWatchlistTags() {
   const container = document.getElementById('watchlistTags');
   if (!container) return;
   const tickers = _currentTickers();
+  // Use single quotes in onclick so the ticker (alphanumeric + hyphens) never breaks the HTML attribute
   container.innerHTML = tickers.length === 0
     ? '<span style="color:var(--muted);font-size:11px;letter-spacing:1px;">No tickers yet — add some above.</span>'
     : tickers.map(t =>
-        `<span class="wl-tag">${t}<button class="wl-tag-remove" onclick="removeTicker(${JSON.stringify(t)})" title="Remove">✕</button></span>`
+        `<span class="wl-tag">${t}<button class="wl-tag-remove" onclick="removeTicker('${t}')" title="Remove">✕</button></span>`
       ).join('');
   const btn = document.getElementById('customScanBtn');
   if (btn) btn.disabled = tickers.length === 0;
 }
 
 async function _saveList(listName, tickers) {
-  const { error } = await getSupabase()
-    .from('watchlists')
-    .upsert(
-      { user_id: currentUser.id, list_name: listName, tickers, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id,list_name' }
-    );
-  if (error) console.error('[WATCHLIST] Save error:', error.message);
+  const sb = getSupabase();
+  if (_multiList) {
+    const { error } = await sb
+      .from('watchlists')
+      .upsert(
+        { user_id: currentUser.id, list_name: listName, tickers, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id,list_name' }
+      );
+    if (error) console.error('[WATCHLIST] Save error:', error.message);
+  } else {
+    // Old schema: single row per user, user_id is primary key
+    const { error } = await sb
+      .from('watchlists')
+      .upsert(
+        { user_id: currentUser.id, tickers, updated_at: new Date().toISOString() },
+        { onConflict: 'user_id' }
+      );
+    if (error) console.error('[WATCHLIST] Save error:', error.message);
+  }
 }
 
 async function addTicker() {
