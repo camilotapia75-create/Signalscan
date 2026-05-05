@@ -29,21 +29,38 @@ async function loadSub() {
   currentSub = data;
 }
 
+// Called by the header LOGIN button as a static fallback in case renderAuthState hasn't run yet
+function headerLoginClick() {
+  if (currentUser) showAccountMenu();
+  else showAuthModal('login');
+}
+
 async function initAuth() {
   const sb = getSupabase();
-  const { data: { session } } = await sb.auth.getSession();
-  if (session?.user) {
-    currentUser = session.user;
-    await loadSub();
-  }
 
-  sb.auth.onAuthStateChange(async (_event, session) => {
+  // Wrap getSession in try-catch so a network failure doesn't silently prevent
+  // renderAuthState() from running — which would leave the LOGIN button with no onclick.
+  try {
+    const { data: { session } } = await sb.auth.getSession();
     if (session?.user) {
       currentUser = session.user;
       await loadSub();
-    } else {
-      currentUser = null;
-      currentSub  = null;
+    }
+  } catch (e) {
+    console.error('[AUTH] getSession failed:', e.message);
+  }
+
+  sb.auth.onAuthStateChange(async (_event, session) => {
+    try {
+      if (session?.user) {
+        currentUser = session.user;
+        await loadSub();
+      } else {
+        currentUser = null;
+        currentSub  = null;
+      }
+    } catch (e) {
+      console.error('[AUTH] onAuthStateChange error:', e.message);
     }
     renderAuthState();
   });
