@@ -41,6 +41,7 @@
     <div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #1c2330;">
       <button onclick="showModalTab('reversal')" id="tabReversal" style="flex:1;background:#00ff88;color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;">⚡ REVERSAL</button>
       <button onclick="showModalTab('continuation')" id="tabContinuation" style="flex:1;background:transparent;color:#5a6a7a;border:none;border-left:1px solid #1c2330;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;">📈 CONTINUATION</button>
+      <button onclick="showModalTab('goldenbull')" id="tabGoldenBull" style="flex:1;background:transparent;color:#5a6a7a;border:none;border-left:1px solid #1c2330;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;">🐂 GOLDEN BULL</button>
     </div>
     <div id="modalReversal" style="display:flex;flex-direction:column;gap:3px;">
       <div style="background:#0a0f18;border:1px solid rgba(255,204,68,0.3);padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Price Action Structure</span><span style="font-size:11px;color:var(--gold);font-weight:700;">25% — BOTH MODES</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Raw price behavior — higher highs/lows, breakouts on volume, 52-week proximity, recent momentum.</p></div>
@@ -57,6 +58,28 @@
       <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">RSI Momentum Zone</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">20% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">RSI 50–65 = bull momentum zone. RSI 35–50 in bear structure = downtrend intact.</p></div>
       <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">OBV Trend</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">15% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">OBV rising + volume above average = institutions participating.</p></div>
       <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Bollinger Bandwidth</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">10% of indicators</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Bandwidth &gt;8% = trend strengthening. &lt;4% = consolidating.</p></div>
+    </div>
+    <div id="modalGoldenBull" style="display:none;flex-direction:column;gap:3px;">
+      <div style="background:#0a0f18;border:1px solid rgba(255,204,68,0.5);padding:16px 18px;margin-bottom:4px;">
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:14px;color:var(--gold);margin-bottom:8px;">🐂 WHAT IS A GOLDEN BULL?</div>
+        <p style="font-size:11px;color:#8a9aaa;line-height:1.8;">A Golden Bull signal fires only when <em style="color:#00ff88;">both</em> the Reversal engine <em style="color:#00ff88;">and</em> the Continuation engine independently return a BULLISH verdict on the same stock. Two completely separate algorithms must agree — making it the highest-conviction signal in the system.</p>
+      </div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Reversal Engine ✓</span><span style="font-size:11px;color:#00ff88;font-weight:700;">Must be BULLISH</span></div>
+        <p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Detects momentum shifts at extremes — oversold RSI, MACD histogram reversing, Bollinger Band bounces, Stochastic crosses from below 25.</p>
+      </div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Continuation Engine ✓</span><span style="font-size:11px;color:#4d9fff;font-weight:700;">Must be BULLISH</span></div>
+        <p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Confirms the trend is structurally sound — EMA20 above EMA50, rising OBV, MACD histogram expanding in positive territory, RSI in the 50–65 momentum zone.</p>
+      </div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Conviction Score</span><span style="font-size:11px;color:var(--gold);font-weight:700;">COMBINED</span></div>
+        <p style="font-size:11px;color:#8a9aaa;line-height:1.7;">The displayed conviction % is the average of both engines' raw scores. Higher = stronger agreement between the two systems. 70%+ is considered high conviction.</p>
+      </div>
+      <div style="background:#050709;border:1px solid #1c2330;padding:16px 18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Why It's Rare</span><span style="font-size:11px;color:var(--muted);font-weight:700;">SIGNAL QUALITY</span></div>
+        <p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Most stocks pass one engine or neither. A genuine Golden Bull — where the stock is simultaneously showing reversal momentum AND healthy trend structure — typically appears in fewer than 5–10% of scanned tickers.</p>
+      </div>
     </div>
     <p style="font-size:10px;color:#3a4a5a;margin-top:16px;text-align:center;">FOR INFORMATIONAL PURPOSES ONLY. NOT FINANCIAL ADVICE.</p>
   </div>
@@ -76,6 +99,7 @@
   <div style="display:flex;gap:0;margin-bottom:24px;border:1px solid var(--border);width:fit-content;">
     <button id="modeReversal" onclick="setMode('reversal')" style="background:var(--accent);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">⚡ REVERSAL</button>
     <button id="modeContinuation" onclick="setMode('continuation')" style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">📈 CONTINUATION</button>
+    <button onclick="document.getElementById('goldenBullAnchor').scrollIntoView({behavior:'smooth',block:'start'})" style="background:transparent;color:var(--gold);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">🐂 GOLDEN BULL</button>
   </div>
   <div class="grid">
     <div style="display:flex;flex-direction:column;gap:24px;">
@@ -125,19 +149,7 @@
       <div class="ai-analysis"><div class="sr-title">AI ANALYSIS</div><div class="ai-text" id="aiText">Waiting for analysis...</div></div>
     </div>
   </div>
-  <!-- ── Live Carousel ─────────────────────────────────────────────────────── -->
-  <div id="carouselSection" style="display:none;padding:24px 32px 8px;border-top:1px solid var(--border);">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-      <div>
-        <span style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;">⚡ LIVE GOLDEN BULL SIGNALS</span>
-        <span id="carouselCount" style="margin-left:10px;font-size:10px;color:var(--accent);letter-spacing:1px;"></span>
-      </div>
-      <span style="font-size:10px;color:var(--muted);letter-spacing:1px;">UPDATED <span id="carouselAge"></span></span>
-    </div>
-    <div id="carouselTrack" style="display:flex;gap:12px;overflow-x:auto;padding-bottom:10px;"></div>
-  </div>
-
-  <div class="scanner-section">
+  <div id="goldenBullAnchor" class="scanner-section">
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px;">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;">🐂 GOLDEN BULL <span style="color:var(--gold);">SCANNER</span></div>

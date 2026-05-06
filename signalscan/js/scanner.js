@@ -189,7 +189,7 @@ async function _runScanCore(tickers, ids) {
   }
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
-  if (bulls.length > 0) { saveCarousel(bulls); hofRecord(bulls); renderCarouselFromData({ ts: Date.now(), bulls }); renderHoF(); }
+  if (bulls.length > 0) { hofRecord(bulls); renderHoF(); }
 
   const allFailed = failed > 0 && failed === done;
   const mostFailed = failed > total * 0.7;
@@ -255,75 +255,6 @@ function loadTickerAndAnalyze(ticker) {
   if (input) input.value = ticker.replace('-USD', '');
   window.scrollTo({ top: 0, behavior: 'smooth' });
   setTimeout(() => runAnalysis(), 400);
-}
-
-// ── Carousel ──────────────────────────────────────────────────────────────────
-
-const CAROUSEL_KEY = 'signalscan_carousel';
-const CAROUSEL_TTL = 12 * 60 * 60 * 1000;
-
-function saveCarousel(bulls) {
-  try {
-    localStorage.setItem(CAROUSEL_KEY, JSON.stringify({
-      ts: Date.now(),
-      bulls: bulls.slice(0, 10).map(b => ({
-        ticker: b.ticker, price: b.price, conviction: b.conviction,
-        topSignal: b.topSignal, spark: b.spark, estimatedUpside: b.estimatedUpside,
-      })),
-    }));
-  } catch (_) {}
-}
-
-function makeSpark(spark) {
-  if (!spark || spark.length < 2) return '';
-  const min = Math.min(...spark), max = Math.max(...spark), range = max - min || 1;
-  const w = 120, h = 38;
-  const pts = spark.map((c, i) =>
-    `${((i / (spark.length - 1)) * w).toFixed(1)},${(h - ((c - min) / range) * h).toFixed(1)}`
-  ).join(' ');
-  const color = spark[spark.length - 1] >= spark[0] ? '#00ff88' : '#ff3d6b';
-  return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:38px;display:block;"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
-}
-
-function renderCarouselCard(b) {
-  const upside = b.estimatedUpside > 0.5 ? `+${b.estimatedUpside.toFixed(1)}%` : '—';
-  const price  = b.price < 10 ? b.price.toFixed(4) : b.price.toFixed(2);
-  return `<div class="carousel-card" onclick="loadTickerAndAnalyze('${b.ticker}')">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
-      <span style="font-weight:700;font-size:1em;font-family:'Syne',sans-serif;">${b.ticker}</span>
-      <span style="font-size:0.7em;color:#00ff88;font-weight:700;">${upside}</span>
-    </div>
-    <div style="margin-bottom:6px;">${makeSpark(b.spark)}</div>
-    <div style="font-size:0.75em;color:var(--muted);margin-bottom:8px;">$${price}</div>
-    <div style="background:rgba(0,255,136,0.12);height:3px;border-radius:2px;margin-bottom:4px;">
-      <div style="background:#00ff88;height:3px;border-radius:2px;width:${b.conviction}%;"></div>
-    </div>
-    <div style="font-size:0.65em;color:var(--muted);letter-spacing:0.5px;margin-bottom:6px;">${b.conviction}% CONVICTION</div>
-    ${b.topSignal ? `<div style="font-size:0.65em;color:#8a9aaa;line-height:1.4;">${b.topSignal.substring(0, 75)}${b.topSignal.length > 75 ? '…' : ''}</div>` : ''}
-  </div>`;
-}
-
-function renderCarouselFromData(data) {
-  const section = document.getElementById('carouselSection');
-  const track   = document.getElementById('carouselTrack');
-  const hdr     = document.getElementById('carouselAge');
-  if (!section || !track || !data.bulls?.length) return;
-  const hours = Math.floor((Date.now() - data.ts) / 3600000);
-  if (hdr) hdr.textContent = hours === 0 ? 'just now' : `${hours}h ago`;
-  const countEl = document.getElementById('carouselCount');
-  if (countEl) countEl.textContent = `${data.bulls.length} SIGNAL${data.bulls.length !== 1 ? 'S' : ''}`;
-  track.innerHTML = data.bulls.map(renderCarouselCard).join('');
-  section.style.display = 'block';
-}
-
-function initCarousel() {
-  try {
-    const raw = localStorage.getItem(CAROUSEL_KEY);
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    if (Date.now() - data.ts > CAROUSEL_TTL || !data.bulls?.length) return;
-    renderCarouselFromData(data);
-  } catch (_) {}
 }
 
 // ── Hall of Fame ─────────────────────────────────────────────────────────────
@@ -401,7 +332,6 @@ async function loadHofReturns() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  initCarousel();
   renderHoF();
   // Pre-load NVDA so new visitors see the analysis tool in action
   const input = document.getElementById('tickerInput');
