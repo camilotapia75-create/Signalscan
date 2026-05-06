@@ -99,7 +99,7 @@
   <div style="display:flex;gap:0;margin-bottom:24px;border:1px solid var(--border);width:fit-content;">
     <button id="modeReversal" onclick="setMode('reversal')" style="background:var(--accent);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">⚡ REVERSAL</button>
     <button id="modeContinuation" onclick="setMode('continuation')" style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">📈 CONTINUATION</button>
-    <button onclick="document.getElementById('goldenBullAnchor').scrollIntoView({behavior:'smooth',block:'start'})" style="background:transparent;color:var(--gold);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">🐂 GOLDEN BULL</button>
+    <button onclick="const el=document.getElementById('goldenBullAnchor');const h=document.querySelector('header')?.offsetHeight||0;window.scrollTo({top:el.getBoundingClientRect().top+window.scrollY-h,behavior:'smooth'});" style="background:transparent;color:var(--gold);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">🐂 GOLDEN BULL</button>
   </div>
   <div class="grid">
     <div style="display:flex;flex-direction:column;gap:24px;">
