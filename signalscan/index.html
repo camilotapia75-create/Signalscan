@@ -17,7 +17,7 @@
   <div class="logo">SIGNAL<span>SCAN</span></div>
   <div style="font-size:10px;color:var(--muted);letter-spacing:2px;">FREE TECHNICAL ANALYSIS</div>
   <div style="display:flex;align-items:center;gap:10px;">
-    <button onclick="toggleHowItWorks()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:6px 14px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">HOW IT WORKS</button>
+    <button id="howItWorksBtn" onclick="toggleHowItWorks()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:6px 14px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">HOW IT WORKS</button>
     <div style="position:relative;">
       <div style="display:flex;align-items:center;gap:6px;">
         <button id="headerLoginBtn" class="header-login-btn" onclick="headerLoginClick()">LOGIN</button>
@@ -97,9 +97,9 @@
     </select>
     <button class="analyze-btn" id="analyzeBtn" onclick="runAnalysis()">⚡ ANALYZE</button>
   </div>
-  <div style="display:flex;gap:0;margin-bottom:24px;border:1px solid var(--border);width:fit-content;">
+  <div id="modeTabs" style="display:flex;gap:0;margin-bottom:24px;border:1px solid var(--border);width:fit-content;">
     <button id="modeReversal" onclick="setMode('reversal')" style="background:var(--accent);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">⚡ REVERSAL</button>
-    <button id="modeContinuation" onclick="setMode('continuation')" style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">📈 CONTINUATION</button>
+    <button id="modeContinuation" onclick="setMode('continuation')" style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">📈 CONT.</button>
     <button onclick="const el=document.getElementById('goldenBullAnchor');const h=document.querySelector('header')?.offsetHeight||0;window.scrollTo({top:el.getBoundingClientRect().top+window.scrollY-h,behavior:'smooth'});" style="background:transparent;color:var(--gold);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1.5px;padding:10px 22px;cursor:pointer;transition:all 0.2s;">🐂 GOLDEN BULL</button>
   </div>
   <div class="grid">
@@ -238,8 +238,8 @@
         <thead>
           <tr style="border-bottom:1px solid var(--border);">
             <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
             <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
             <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">RETURN</th>
           </tr>

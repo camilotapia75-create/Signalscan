@@ -297,8 +297,8 @@ function renderHoF() {
         const price = s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2);
         return `<tr>
           <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
-          <td style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-          <td style="padding:7px 8px;">$${price}</td>
+          <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+          <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
           <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
           <td id="hret-${s.ticker}-${s.ts}" style="padding:7px 8px;color:var(--muted);">—</td>
         </tr>`;
