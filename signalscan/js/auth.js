@@ -109,7 +109,24 @@ function renderAuthState() {
   }
 
   renderProGate();
+  updateAds();
   if (isSubscribed()) loadWatchlist();
+}
+
+let _adInjected = false;
+
+function updateAds() {
+  if (isSubscribed()) {
+    const el = document.getElementById('_monetag');
+    if (el) el.remove();
+    _adInjected = false;
+  } else if (!_adInjected) {
+    _adInjected = true;
+    const s = document.body.appendChild(document.createElement('script'));
+    s.id = '_monetag';
+    s.dataset.zone = '10969506';
+    s.src = 'https://nap5k.com/tag.min.js';
+  }
 }
 
 function renderProGate() {
