@@ -123,11 +123,11 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .wl-tag-remove { background:none; border:none; color:var(--muted); cursor:pointer; font-size:9px; padding:0; line-height:1; transition:color 0.15s; }
 .wl-tag-remove:hover { color:var(--accent2); }
 @media (max-width: 768px) {
-  /* Header — single row, logo shrinks to guarantee actions always visible */
+  /* Header — absolute pin so login is always visible regardless of logo width */
   header { padding: 12px 14px; }
-  .logo { font-size: 15px; flex: 1; min-width: 0; }
+  .logo { font-size: 15px; padding-right: 130px; }
   header div:nth-child(2) { display: none; }
-  #headerActions { gap: 6px; flex-shrink: 0; }
+  #headerActions { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); gap: 6px; }
   #howItWorksBtn { font-size: 0; padding: 5px 8px; letter-spacing: 0; border-color: var(--accent); }
   #howItWorksBtn::after { content: '?'; font-size: 11px; font-family: 'Space Mono', monospace; color: var(--accent); }
 
