@@ -126,9 +126,11 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
   .logo { font-size: 18px; }
   header div:nth-child(2) { display: none; }
   header > div:last-child { gap: 5px; }
-  .status-dot { display: none; }
-  #howItWorksBtn { font-size: 7px; padding: 5px 6px; letter-spacing: 0; }
-  #howItWorksBtn::after { content: '?'; }
+  /* Shrink HOW IT WORKS to just "?" — !important needed to beat inline styles */
+  #howItWorksBtn { font-size: 0 !important; padding: 6px 8px !important; letter-spacing: 0 !important; }
+  #howItWorksBtn::after { content: '?'; font-size: 10px; }
+  /* Show scroll arrow on modal tabs */
+  #modalTabsArrow { display: flex !important; }
 
   /* How it works modal — prevent horizontal overflow */
   #howItWorksPanel { width: 96% !important; max-height: 88vh !important; overflow-x: hidden !important; }
@@ -166,6 +168,9 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 }
 
 
+
+/* ── Modal tab scroll ────────────────────────────────────────────────────── */
+#modalTabsScroll::-webkit-scrollbar { display: none; }
 
 /* ── Hall of Fame table ──────────────────────────────────────────────────── */
 #hofTbody tr { border-bottom: 1px solid rgba(28,35,48,0.6); transition: background 0.1s; }

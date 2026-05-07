@@ -22,4 +22,9 @@ btn.disabled=false;btn.classList.remove('loading');btn.textContent='\u26a1 ANALY
 function showError(msg){const el=document.getElementById('errorMsg');el.textContent='\u26a0 '+msg;el.style.display='block';}
 function showModalTab(tab){const rt=document.getElementById('tabReversal'),ct=document.getElementById('tabContinuation'),gt=document.getElementById('tabGoldenBull');[rt,ct,gt].forEach(b=>{if(b){b.style.background='transparent';b.style.color='#5a6a7a';}});document.getElementById('modalReversal').style.display='none';document.getElementById('modalContinuation').style.display='none';document.getElementById('modalGoldenBull').style.display='none';if(tab==='reversal'){rt.style.background='#00ff88';rt.style.color='#000';document.getElementById('modalReversal').style.display='flex';}else if(tab==='continuation'){ct.style.background='#4d9fff';ct.style.color='#000';document.getElementById('modalContinuation').style.display='flex';}else{gt.style.background='var(--gold)';gt.style.color='#000';document.getElementById('modalGoldenBull').style.display='flex';}}
 function toggleHowItWorks(){const o=document.getElementById('howItWorksOverlay'),p=document.getElementById('howItWorksPanel'),open=p.style.display!=='none';o.style.display=open?'none':'block';p.style.display=open?'none':'block';}
-document.addEventListener('DOMContentLoaded',()=>{document.getElementById('tickerInput').addEventListener('keydown',e=>{if(e.key==='Enter')runAnalysis();});});
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('tickerInput').addEventListener('keydown',e=>{if(e.key==='Enter')runAnalysis();});
+  const scr=document.getElementById('modalTabsScroll');
+  const arr=document.getElementById('modalTabsArrow');
+  if(scr&&arr)scr.addEventListener('scroll',()=>{arr.style.display=scr.scrollLeft>10?'none':'flex';});
+});

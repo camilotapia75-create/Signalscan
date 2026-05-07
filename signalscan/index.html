@@ -39,10 +39,15 @@
   </div>
   <div style="padding:24px;">
     <p style="font-size:11px;color:#5a6a7a;letter-spacing:1px;margin-bottom:20px;line-height:1.6;">SIGNALSCAN has two modes. <em style="color:#00ff88;">REVERSAL</em> detects when a trend is about to flip. <em style="color:#4d9fff;">CONTINUATION</em> detects when a healthy trend is likely to keep going.</p>
-    <div style="display:flex;gap:0;margin-bottom:16px;border:1px solid #1c2330;">
-      <button onclick="showModalTab('reversal')" id="tabReversal" style="flex:1;background:#00ff88;color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;">⚡ REVERSAL</button>
-      <button onclick="showModalTab('continuation')" id="tabContinuation" style="flex:1;background:transparent;color:#5a6a7a;border:none;border-left:1px solid #1c2330;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;">📈 CONTINUATION</button>
-      <button onclick="showModalTab('goldenbull')" id="tabGoldenBull" style="flex:1;background:transparent;color:#5a6a7a;border:none;border-left:1px solid #1c2330;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px;cursor:pointer;">🐂 GOLDEN BULL</button>
+    <div style="position:relative;margin-bottom:16px;">
+      <div id="modalTabsScroll" style="display:flex;gap:0;border:1px solid #1c2330;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;">
+        <button onclick="showModalTab('reversal')" id="tabReversal" style="flex:0 0 auto;background:#00ff88;color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px 14px;cursor:pointer;white-space:nowrap;">⚡ REVERSAL</button>
+        <button onclick="showModalTab('continuation')" id="tabContinuation" style="flex:0 0 auto;background:transparent;color:#5a6a7a;border:none;border-left:1px solid #1c2330;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px 14px;cursor:pointer;white-space:nowrap;">📈 CONTINUATION</button>
+        <button onclick="showModalTab('goldenbull')" id="tabGoldenBull" style="flex:0 0 auto;background:transparent;color:#5a6a7a;border:none;border-left:1px solid #1c2330;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:1px;padding:9px 14px;cursor:pointer;white-space:nowrap;">🐂 GOLDEN BULL</button>
+      </div>
+      <div id="modalTabsArrow" style="display:none;position:absolute;right:0;top:0;bottom:0;width:32px;background:linear-gradient(to right,transparent,#0d1117);pointer-events:none;align-items:center;justify-content:center;">
+        <span style="color:#5a6a7a;font-size:14px;">›</span>
+      </div>
     </div>
     <div id="modalReversal" style="display:flex;flex-direction:column;gap:3px;">
       <div style="background:#0a0f18;border:1px solid rgba(255,204,68,0.3);padding:16px 18px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"><span style="font-family:'Syne',sans-serif;font-weight:700;font-size:13px;">Price Action Structure</span><span style="font-size:11px;color:var(--gold);font-weight:700;">25% — BOTH MODES</span></div><p style="font-size:11px;color:#8a9aaa;line-height:1.7;">Raw price behavior — higher highs/lows, breakouts on volume, 52-week proximity, recent momentum.</p></div>
