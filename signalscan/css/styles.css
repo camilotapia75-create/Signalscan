@@ -126,9 +126,8 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
   /* Header */
   header { padding: 12px 14px; }
   .logo { font-size: 15px; }
-  header div:nth-child(2) { display: none; }
-  #headerActions { position: fixed; right: 14px; top: 10px; z-index: 200; gap: 6px; background: rgba(5,7,9,0.95); padding: 4px 0 4px 8px; }
-  #headerLoginBtn { display: inline-block !important; background: var(--accent) !important; color: #000 !important; border: none !important; font-size: 9px !important; padding: 5px 10px !important; letter-spacing: 0.5px !important; min-width: 48px !important; }
+  header > div:nth-child(2) { display: none; }
+  #headerActions { gap: 6px; }
   #howItWorksBtn { font-size: 0; padding: 5px 8px; letter-spacing: 0; border-color: var(--accent); }
   #howItWorksBtn::after { content: '?'; font-size: 11px; font-family: 'Space Mono', monospace; color: var(--accent); }
 
