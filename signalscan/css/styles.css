@@ -121,11 +121,19 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .wl-tag-remove { background:none; border:none; color:var(--muted); cursor:pointer; font-size:9px; padding:0; line-height:1; transition:color 0.15s; }
 .wl-tag-remove:hover { color:var(--accent2); }
 @media (max-width: 768px) {
-  /* Header */
+  /* Header — hide middle tagline, compress right side */
   header { padding: 14px 16px; }
   .logo { font-size: 18px; }
   header div:nth-child(2) { display: none; }
-  #howItWorksBtn { font-size: 8px; padding: 6px 8px; letter-spacing: 0.5px; }
+  header > div:last-child { gap: 5px; }
+  .status-dot { display: none; }
+  #howItWorksBtn { font-size: 7px; padding: 5px 6px; letter-spacing: 0; }
+  #howItWorksBtn::after { content: '?'; }
+
+  /* How it works modal — prevent horizontal overflow */
+  #howItWorksPanel { width: 96% !important; max-height: 88vh !important; overflow-x: hidden !important; }
+  #howItWorksPanel > div:last-child { padding: 14px !important; }
+  #howItWorksPanel p { letter-spacing: 0.3px !important; }
 
   /* Main layout */
   main { padding: 12px; }
@@ -137,15 +145,20 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
   .analyze-btn { width: 100%; }
   .timeframe-select { flex: 1; }
 
-  /* Mode tabs — full width, tighter padding */
+  /* Mode tabs — full width, tighter */
   #modeTabs { width: 100% !important; }
-  #modeTabs button { flex: 1; padding: 10px 6px !important; letter-spacing: 0.5px !important; font-size: 10px !important; }
+  #modeTabs button { flex: 1; padding: 10px 4px !important; letter-spacing: 0 !important; font-size: 9px !important; }
 
-  /* Scanner sections */
-  #scanResultsGrid { grid-template-columns: 1fr !important; }
+  /* Scanner sections — stack title above controls, fix overflow */
+  #scanResultsGrid, #customScanGrid { grid-template-columns: 1fr !important; }
   .scanner-section { padding-top: 20px; }
   .scanner-section > div:first-child { flex-direction: column; align-items: flex-start; }
-  .scanner-section > div:first-child > div:first-child div:first-child { font-size: 16px !important; }
+  .scanner-section > div:first-child > div:first-child div:first-child { font-size: 15px !important; }
+  .scanner-section > div:first-child > div:last-child { width: 100%; display: flex; gap: 8px; }
+  #proScannerSection > div:first-child { flex-direction: column; align-items: flex-start; }
+  #proScannerSection > div:first-child > div > div:first-child { font-size: 15px !important; }
+  .scan-btn { flex: 1; padding: 12px 8px !important; font-size: 12px !important; }
+  #scanTimeframe { flex: 0 0 auto; }
 
   /* Hall of Fame — hide less important columns */
   .hof-col-det, .hof-col-price { display: none; }
