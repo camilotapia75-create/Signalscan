@@ -121,14 +121,20 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 .wl-tag-remove { background:none; border:none; color:var(--muted); cursor:pointer; font-size:9px; padding:0; line-height:1; transition:color 0.15s; }
 .wl-tag-remove:hover { color:var(--accent2); }
 @media (max-width: 768px) {
-  /* Header — hide middle tagline, compress right side */
-  header { padding: 14px 16px; }
-  .logo { font-size: 18px; }
+  /* Header — two rows on mobile */
+  header { padding: 10px 16px 0; flex-wrap: wrap; gap: 0; align-items: center; }
+  .logo { font-size: 18px; flex: 1; }
   header div:nth-child(2) { display: none; }
-  header > div:last-child { gap: 5px; }
-  /* Shrink HOW IT WORKS to just "?" — !important needed to beat inline styles */
-  #howItWorksBtn { font-size: 0 !important; padding: 6px 8px !important; letter-spacing: 0 !important; }
-  #howItWorksBtn::after { content: '?'; font-size: 10px; }
+  header > div:last-child {
+    flex: 0 0 100%;
+    justify-content: space-between;
+    border-top: 1px solid var(--border);
+    padding: 8px 0 10px;
+    gap: 0;
+  }
+  #howItWorksBtn { font-size: 9px !important; padding: 6px 10px !important; letter-spacing: 0.5px !important; }
+  #howItWorksBtn::after { content: none; }
+
   /* Show scroll arrow on modal tabs */
   #modalTabsArrow { display: flex !important; }
 
@@ -171,6 +177,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 
 /* ── Modal tab scroll ────────────────────────────────────────────────────── */
 #modalTabsScroll::-webkit-scrollbar { display: none; }
+@keyframes arrowPulse { 0%,100% { opacity:1; transform:translateX(0); } 50% { opacity:0.4; transform:translateX(4px); } }
 
 /* ── Hall of Fame table ──────────────────────────────────────────────────── */
 #hofTbody tr { border-bottom: 1px solid rgba(28,35,48,0.6); transition: background 0.1s; }
