@@ -16,8 +16,8 @@
 <header>
   <div class="logo">SIGNAL<span>SCAN</span></div>
   <div style="font-size:10px;color:var(--muted);letter-spacing:2px;">FREE TECHNICAL ANALYSIS</div>
-  <div style="display:flex;align-items:center;gap:10px;">
-    <button id="howItWorksBtn" onclick="toggleHowItWorks()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:6px 14px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">HOW IT WORKS</button>
+  <div id="headerActions">
+    <button id="howItWorksBtn" onclick="toggleHowItWorks()" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">HOW IT WORKS</button>
     <div style="position:relative;">
       <div style="display:flex;align-items:center;gap:6px;">
         <button id="headerLoginBtn" class="header-login-btn" onclick="headerLoginClick()">LOGIN</button>
