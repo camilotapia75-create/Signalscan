@@ -18,6 +18,9 @@ export default async function handler(req, res) {
   );
   if (!valid.length) return res.status(400).json({ error: 'Invalid signals' });
 
+  const allowedSources = ['scanner', 'watchlist'];
+  const resolveSource = (s) => allowedSources.includes(s.source) ? s.source : 'scanner';
+
   // Skip tickers already recorded in the last 7 days
   const tickerList = valid.map(s => `"${s.ticker}"`).join(',');
   const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
@@ -38,7 +41,7 @@ export default async function handler(req, res) {
 
   const toInsert = valid
     .filter(s => !existingSet.has(s.ticker))
-    .map(s => ({ ticker: s.ticker, signal_price: s.price, conviction: s.conviction }));
+    .map(s => ({ ticker: s.ticker, signal_price: s.price, conviction: s.conviction, source: resolveSource(s) }));
 
   if (!toInsert.length) return res.status(200).json({ inserted: 0, skipped: valid.length });
 

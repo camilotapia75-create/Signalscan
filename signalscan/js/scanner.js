@@ -235,14 +235,12 @@ function runScanner() {
 function runCustomScanner() {
   const tickers = window._watchlistTickers || [];
   if (tickers.length === 0) return;
-  // Watchlist results show in scan cards but don't write to golden_bull_hof —
-  // keeps the HoF a clean comparison of standardized universe only.
   return _runScanCore(tickers, {
     btnId: 'customScanBtn',       progressId: 'customScanProgress', gridId: 'customScanGrid',
     emptyId: 'customScanEmpty',   headerId: 'customScanHeader',     foundMsgId: 'customScanFoundMsg',
     statusId: 'customScanStatus', countId: 'customScanCount',       barId: 'customScanBar',
     btnLabel: '🔍 SCAN AGAIN',
-  }, null, async () => {}, null);
+  }, null, (bulls) => hofRecord(bulls, 'watchlist'), null);
 }
 
 function renderScanCard(r) {
@@ -274,13 +272,13 @@ let _hofAdminRecords = [];
 let _hofRenderGen    = 0; // increments on each renderHoF() call to cancel stale async renders
 let _hofReturnLoading = false;
 
-async function hofRecord(bulls) {
+async function hofRecord(bulls, source = 'scanner') {
   // Persist to Supabase via server endpoint (cross-device)
   try {
     await fetch('/api/hof/record', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
+      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction, source })) }),
       signal: AbortSignal.timeout(10000),
     });
   } catch (e) {
@@ -311,7 +309,7 @@ async function renderHoF() {
     const sb = getSupabase();
     const { data: records, error } = await sb
       .from('golden_bull_hof')
-      .select('ticker,detected_at,signal_price,conviction')
+      .select('ticker,detected_at,signal_price,conviction,source')
       .order('detected_at', { ascending: false })
       .limit(1000);
 
@@ -347,7 +345,8 @@ async function renderHoF() {
       _renderHofAdminTable(records);
     } else {
       _hofAdminRecords = [];
-      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${records.length} TOTAL SIGNALS DETECTED`;
+      const uniqueCount = new Set(records.map(r => r.ticker)).size;
+      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${uniqueCount} TICKERS · ${records.length} TOTAL SIGNALS`;
       if (btn) btn.style.display = 'none';
       await _renderHofPublicTable(records, gen);
     }
@@ -435,8 +434,11 @@ function _renderHofAdminTable(records) {
     const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
     const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
     const ts    = new Date(s.detected_at).getTime();
+    const src   = s.source === 'watchlist'
+      ? '<span style="font-size:9px;color:var(--muted);letter-spacing:0.5px;">WATCHLIST</span>'
+      : '<span style="font-size:9px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>';
     return `<tr>
-      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${src}</td>
       <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
       <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
