@@ -301,19 +301,38 @@ async function renderHoF() {
       .select('ticker,detected_at,signal_price,conviction')
       .order('detected_at', { ascending: false });
 
-    if (error || !records?.length) { _renderHofLegacy(); return; }
+    if (error) throw error;
+
+    const subtitleEl = document.getElementById('hofSubtitle');
+    const titleEl    = document.getElementById('hofTitle');
+    const btn        = document.getElementById('hofReturnBtn');
+
+    if (!records?.length) {
+      // Table empty — admin still gets their panel, public falls back to localStorage
+      if (isAdmin) {
+        section.style.display = 'block';
+        if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HALL OF FAME — ADMIN';
+        if (subtitleEl) subtitleEl.textContent = 'ADMIN VIEW — 0 SIGNALS';
+        const tbody = document.getElementById('hofTbody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:14px 8px;color:var(--muted);font-size:10px;letter-spacing:1px;">No signals yet. Run a Golden Bull scan to populate.</td></tr>';
+        if (btn) btn.style.display = 'none';
+      } else {
+        _renderHofLegacy();
+      }
+      return;
+    }
 
     section.style.display = 'block';
-    const subtitleEl = document.getElementById('hofSubtitle');
 
     if (isAdmin) {
       _hofAdminRecords = records;
-      const titleEl = document.getElementById('hofTitle');
-      if (titleEl) titleEl.textContent = '🏆 GOLDEN BULL HALL OF FAME — ADMIN';
+      if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HALL OF FAME — ADMIN';
       if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ALL ${records.length} SIGNALS`;
+      if (btn) btn.style.display = 'block';
       _renderHofAdminTable(records);
     } else {
       if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${records.length} TOTAL SIGNALS DETECTED`;
+      if (btn) btn.style.display = 'none';
       await _renderHofPublicTable(records);
     }
   } catch (e) {
@@ -418,27 +437,68 @@ function _renderHofLegacy() {
         </tr>`;
       }).join('');
     }
+    const hofBtn = document.getElementById('hofReturnBtn');
+    if (hofBtn) hofBtn.style.display = '';
     section.style.display = 'block';
   } catch (_) {}
 }
 
 async function loadHofReturns() {
-  if (!_hofAdminRecords.length) return;
   const btn = document.getElementById('hofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
-  await Promise.all(_hofAdminRecords.slice(0, 50).map(async s => {
+
+  if (_hofAdminRecords.length) {
+    // Supabase admin path
+    await Promise.all(_hofAdminRecords.slice(0, 50).map(async s => {
+      try {
+        const data = await fetchStockData(s.ticker, '1d|5d');
+        const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+        if (!cur) return;
+        const ret = (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100;
+        const el  = document.getElementById(`hret-${s.ticker}-${new Date(s.detected_at).getTime()}`);
+        if (el) {
+          el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
+          el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
+        }
+      } catch (_) {}
+    }));
+  } else {
+    // localStorage legacy path — fetch prices, sort by % gain, re-render
     try {
-      const data = await fetchStockData(s.ticker, '1d|5d');
-      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-      if (!cur) return;
-      const ret = (cur - s.signal_price) / s.signal_price * 100;
-      const el  = document.getElementById(`hret-${s.ticker}-${new Date(s.detected_at).getTime()}`);
-      if (el) {
-        el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
-        el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      const raw = localStorage.getItem(HOF_KEY);
+      if (!raw) { if (btn) { btn.disabled = false; btn.textContent = 'LOAD RETURNS'; } return; }
+      const store = JSON.parse(raw);
+      const pool  = store.signals.slice().reverse().slice(0, 50);
+
+      const withPct = await Promise.all(pool.map(async s => {
+        try {
+          const data = await fetchStockData(s.ticker, '1d|5d');
+          const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+          if (!cur) return null;
+          return { ...s, pct: (cur - s.price) / s.price * 100 };
+        } catch (_) { return null; }
+      }));
+
+      const top20 = withPct.filter(Boolean).sort((a, b) => b.pct - a.pct).slice(0, 20);
+      const tbody = document.getElementById('hofTbody');
+      if (tbody && top20.length) {
+        tbody.innerHTML = top20.map(s => {
+          const lbl   = new Date(s.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const price = s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2);
+          const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+          const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
+          return `<tr>
+            <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+            <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+            <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+            <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+            <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
+          </tr>`;
+        }).join('');
       }
     } catch (_) {}
-  }));
+  }
+
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
