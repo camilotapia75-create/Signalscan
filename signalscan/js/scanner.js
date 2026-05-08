@@ -346,7 +346,7 @@ async function renderHoF() {
     } else {
       _hofAdminRecords = [];
       const uniqueCount = new Set(records.map(r => r.ticker)).size;
-      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${uniqueCount} TICKERS · ${records.length} TOTAL SIGNALS`;
+      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${uniqueCount} TICKERS`;
       if (btn) btn.style.display = 'none';
       await _renderHofPublicTable(records, gen);
     }
