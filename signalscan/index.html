@@ -303,6 +303,27 @@
     </div>
     <button id="bpHofReturnBtn" onclick="loadBullPenReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(255,140,80,0.3);color:rgba(255,150,80,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#ff9055';this.style.color='#ff9055'" onmouseout="this.style.borderColor='rgba(255,140,80,0.3)';this.style.color='rgba(255,150,80,0.6)'">LOAD RETURNS</button>
   </div>
+
+  <!-- ── Combined HoF (Scanner + Watchlist) ───────────────────────────────── -->
+  <div id="allHofSection" style="display:none;padding:32px;border-top:1px solid rgba(77,159,255,0.3);">
+    <div id="allHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#4d9fff;">⚡ COMBINED HOF — SCANNER + WATCHLIST</div>
+    <div id="allHofSubtitle" style="font-size:10px;color:rgba(77,159,255,0.7);letter-spacing:1px;margin-bottom:20px;">ALL-TIME · 0 TICKERS</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid rgba(77,159,255,0.25);">
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
+            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">RETURN</th>
+          </tr>
+        </thead>
+        <tbody id="allHofTbody"></tbody>
+      </table>
+    </div>
+    <button id="allHofReturnBtn" onclick="loadAllHofReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(77,159,255,0.3);color:rgba(77,159,255,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#4d9fff';this.style.color='#4d9fff'" onmouseout="this.style.borderColor='rgba(77,159,255,0.3)';this.style.color='rgba(77,159,255,0.6)'">LOAD RETURNS</button>
+  </div>
 </main>
 
 <!-- ── Auth Modal ──────────────────────────────────────────────────────────── -->
@@ -334,13 +355,17 @@
 </div>
 
 <div style="text-align:center;padding:24px 32px;font-size:10px;color:#3a4a5a;letter-spacing:0.5px;border-top:1px solid #1c2330;margin-top:32px;">FOR INFORMATIONAL PURPOSES ONLY. NOT FINANCIAL ADVICE.</div>
-<script src="js/config.js?v=23"></script>
-<script src="js/calc.js?v=23"></script>
-<script src="js/analysis.js?v=23"></script>
-<script src="js/scanner.js?v=23"></script>
-<script src="js/app.js?v=23"></script>
-<script src="js/auth.js?v=23"></script>
-<script src="js/watchlist.js?v=23"></script>
+
+<!-- ── Theme toggle ──────────────────────────────────────────────────────── -->
+<button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle light/dark mode" style="position:fixed;bottom:20px;right:20px;width:38px;height:38px;border-radius:50%;background:var(--surface);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;z-index:999;display:flex;align-items:center;justify-content:center;transition:border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">🌙</button>
+
+<script src="js/config.js?v=24"></script>
+<script src="js/calc.js?v=24"></script>
+<script src="js/analysis.js?v=24"></script>
+<script src="js/scanner.js?v=24"></script>
+<script src="js/app.js?v=24"></script>
+<script src="js/auth.js?v=24"></script>
+<script src="js/watchlist.js?v=24"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
 </html>

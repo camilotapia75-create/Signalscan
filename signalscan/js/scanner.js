@@ -268,9 +268,12 @@ function loadTickerAndAnalyze(ticker) {
 
 const HOF_KEY    = 'signalscan_hof';
 const ADMIN_EMAIL = 'camilotapia75@gmail.com';
-let _hofAdminRecords = [];
-let _hofRenderGen    = 0; // increments on each renderHoF() call to cancel stale async renders
+let _hofAdminRecords  = [];
+let _hofRenderGen     = 0;
 let _hofReturnLoading = false;
+let _allHofAdminRecords = [];
+let _allRenderGen       = 0;
+let _allReturnLoading   = false;
 
 async function hofRecord(bulls, source = 'scanner') {
   // Persist to Supabase via server endpoint (cross-device)
@@ -310,6 +313,7 @@ async function renderHoF() {
     const { data: records, error } = await sb
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction,source')
+      .or('source.eq.scanner,source.is.null')
       .order('detected_at', { ascending: false })
       .limit(1000);
 
@@ -323,8 +327,8 @@ async function renderHoF() {
     if (!records?.length) {
       if (isAdmin) {
         section.style.display = 'block';
-        if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HALL OF FAME — ADMIN';
-        if (subtitleEl) subtitleEl.textContent = 'ADMIN VIEW — 0 SIGNALS';
+        if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL SCANNER HOF — ADMIN';
+        if (subtitleEl) subtitleEl.textContent = 'SCANNER ONLY — 0 SIGNALS';
         const tbody = document.getElementById('hofTbody');
         if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:14px 8px;color:var(--muted);font-size:10px;letter-spacing:1px;">No signals yet. Run a Golden Bull scan to populate.</td></tr>';
         if (btn) btn.style.display = 'none';
@@ -339,8 +343,8 @@ async function renderHoF() {
 
     if (isAdmin) {
       _hofAdminRecords = records;
-      if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HALL OF FAME — ADMIN';
-      if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ALL ${records.length} SIGNALS`;
+      if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL SCANNER HOF — ADMIN';
+      if (subtitleEl) subtitleEl.textContent = `SCANNER ONLY — ${records.length} SIGNALS`;
       if (btn) btn.style.display = 'block';
       _renderHofAdminTable(records);
     } else {
@@ -356,9 +360,9 @@ async function renderHoF() {
   }
 }
 
-async function _renderHofPublicTable(records, gen) {
-  const tbody = document.getElementById('hofTbody');
-  const btn   = document.getElementById('hofReturnBtn');
+async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnId = 'hofReturnBtn', getGen = () => _hofRenderGen) {
+  const tbody = document.getElementById(tbodyId);
+  const btn   = document.getElementById(retBtnId);
   if (btn) btn.style.display = 'none';
 
   // One entry per ticker (most recent signal), capped at 30 for price fetching
@@ -369,7 +373,7 @@ async function _renderHofPublicTable(records, gen) {
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
 
   const renderRows = (rows) => {
-    if (gen !== _hofRenderGen) return; // admin may have logged in mid-fetch
+    if (gen !== getGen()) return;
     if (!tbody) return;
     tbody.innerHTML = rows.map(s => {
       const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -427,8 +431,8 @@ async function _renderHofPublicTable(records, gen) {
   }
 }
 
-function _renderHofAdminTable(records) {
-  const tbody = document.getElementById('hofTbody');
+function _renderHofAdminTable(records, tbodyId = 'hofTbody', retPrefix = 'hret') {
+  const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
   tbody.innerHTML = records.map(s => {
     const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
@@ -442,7 +446,7 @@ function _renderHofAdminTable(records) {
       <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
       <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-      <td id="hret-${s.ticker}-${ts}" style="padding:7px 8px;color:var(--muted);">—</td>
+      <td id="${retPrefix}-${s.ticker}-${ts}" style="padding:7px 8px;color:var(--muted);">—</td>
     </tr>`;
   }).join('');
 }
@@ -543,6 +547,94 @@ async function loadHofReturns() {
 
   _hofReturnLoading = false;
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
+}
+
+// ── Combined HoF (Golden Bull Scanner + Watchlist) ────────────────────────────
+
+async function renderAllHoF() {
+  const section = document.getElementById('allHofSection');
+  if (!section) return;
+
+  const isAdmin = typeof currentUser !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
+  const gen = ++_allRenderGen;
+
+  try {
+    const sb = getSupabase();
+    const { data: records, error } = await sb
+      .from('golden_bull_hof')
+      .select('ticker,detected_at,signal_price,conviction,source')
+      .order('detected_at', { ascending: false })
+      .limit(1000);
+
+    if (gen !== _allRenderGen) return;
+    if (error) throw error;
+
+    if (!records?.length) { section.style.display = 'none'; return; }
+
+    section.style.display = 'block';
+    const titleEl    = document.getElementById('allHofTitle');
+    const subtitleEl = document.getElementById('allHofSubtitle');
+    const btn        = document.getElementById('allHofReturnBtn');
+
+    if (isAdmin) {
+      _allHofAdminRecords = records;
+      if (titleEl)    titleEl.textContent    = '⚡ COMBINED HOF — SCANNER + WATCHLIST (ADMIN)';
+      if (subtitleEl) subtitleEl.textContent = `ALL SOURCES — ${records.length} SIGNALS`;
+      if (btn) btn.style.display = 'block';
+      _renderHofAdminTable(records, 'allHofTbody', 'allret');
+    } else {
+      _allHofAdminRecords = [];
+      const uniqueCount = new Set(records.map(r => r.ticker)).size;
+      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${uniqueCount} TICKERS`;
+      if (btn) btn.style.display = 'none';
+      await _renderHofPublicTable(records, gen, 'allHofTbody', 'allHofReturnBtn', () => _allRenderGen);
+    }
+  } catch (e) {
+    console.error('[ALL HOF] render error:', e.message);
+    section.style.display = 'none';
+  }
+}
+
+async function loadAllHofReturns() {
+  if (_allReturnLoading) return;
+  _allReturnLoading = true;
+  const btn = document.getElementById('allHofReturnBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
+
+  await Promise.all(_allHofAdminRecords.slice(0, 50).map(async s => {
+    try {
+      const data = await fetchStockData(s.ticker, '1d|5d');
+      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      if (!cur) return;
+      const ret = (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100;
+      const el  = document.getElementById(`allret-${s.ticker}-${new Date(s.detected_at).getTime()}`);
+      if (el) {
+        el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
+        el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      }
+    } catch (_) {}
+  }));
+
+  _allReturnLoading = false;
+  if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
+}
+
+// ── Theme toggle ──────────────────────────────────────────────────────────────
+
+function toggleTheme() {
+  const isLight = document.body.classList.toggle('light-mode');
+  localStorage.setItem('signalscan_theme', isLight ? 'light' : 'dark');
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) btn.textContent = isLight ? '☀' : '🌙';
+}
+
+function initTheme() {
+  const saved = localStorage.getItem('signalscan_theme');
+  if (saved === 'light') {
+    document.body.classList.add('light-mode');
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) btn.textContent = '☀';
+  }
 }
 
 async function _migrateHofToSupabase() {
@@ -877,9 +969,11 @@ async function loadBullPenReturns() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  initTheme();
   await _migrateHofToSupabase();
   renderHoF();
   renderBullPenHoF();
+  renderAllHoF();
   // Pre-load NVDA so new visitors see the analysis tool in action
   const input = document.getElementById('tickerInput');
   if (input && !input.value.trim()) {

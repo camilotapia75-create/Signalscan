@@ -114,6 +114,7 @@ function renderAuthState() {
   if (currentUser?.email === 'camilotapia75@gmail.com' && typeof renderHoF === 'function') {
     renderHoF();
     if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
+    if (typeof renderAllHoF === 'function') renderAllHoF();
   }
 }
 

@@ -178,3 +178,13 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
 /* ── Hall of Fame table ──────────────────────────────────────────────────── */
 #hofTbody tr { border-bottom: 1px solid rgba(28,35,48,0.6); transition: background 0.1s; }
 #hofTbody tr:hover { background: rgba(255,255,255,0.03); }
+
+/* ── Light mode ──────────────────────────────────────────────────────────── */
+body.light-mode {
+  --bg: #f0f4f8; --surface: #ffffff; --border: #dde3ea;
+  --text: #0d1117; --muted: #5a6a7a;
+}
+body.light-mode::before { display: none; }
+body.light-mode header { background: rgba(255,255,255,0.92); }
+body.light-mode .panel { box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+body.light-mode #themeToggleBtn { background: #fff; }
