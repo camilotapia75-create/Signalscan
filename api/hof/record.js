@@ -29,6 +29,10 @@ export default async function handler(req, res) {
       signal: AbortSignal.timeout(8000),
     }
   );
+  if (!checkRes.ok) {
+    console.error('[HOF record] dedup check failed:', checkRes.status);
+    return res.status(503).json({ error: 'Dedup check unavailable' });
+  }
   const existing    = await checkRes.json();
   const existingSet = new Set((Array.isArray(existing) ? existing : []).map(r => r.ticker));
 

@@ -16,7 +16,7 @@ function getSupabase() {
 }
 
 function isSubscribed() {
-  return currentSub?.status === 'active';
+  return currentSub?.status === 'active' || currentSub?.status === 'trialing';
 }
 
 async function loadSub() {

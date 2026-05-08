@@ -262,6 +262,8 @@ function loadTickerAndAnalyze(ticker) {
 const HOF_KEY    = 'signalscan_hof';
 const ADMIN_EMAIL = 'camilotapia75@gmail.com';
 let _hofAdminRecords = [];
+let _hofRenderGen    = 0; // increments on each renderHoF() call to cancel stale async renders
+let _hofReturnLoading = false;
 
 async function hofRecord(bulls) {
   // Persist to Supabase via server endpoint (cross-device)
@@ -293,14 +295,17 @@ async function renderHoF() {
   if (!section) return;
 
   const isAdmin = typeof currentUser !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
+  const gen = ++_hofRenderGen; // stale-render guard
 
   try {
     const sb = getSupabase();
     const { data: records, error } = await sb
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction')
-      .order('detected_at', { ascending: false });
+      .order('detected_at', { ascending: false })
+      .limit(1000);
 
+    if (gen !== _hofRenderGen) return; // a newer renderHoF() started — abort
     if (error) throw error;
 
     const subtitleEl = document.getElementById('hofSubtitle');
@@ -308,7 +313,6 @@ async function renderHoF() {
     const btn        = document.getElementById('hofReturnBtn');
 
     if (!records?.length) {
-      // Table empty — admin still gets their panel, public falls back to localStorage
       if (isAdmin) {
         section.style.display = 'block';
         if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HALL OF FAME — ADMIN';
@@ -317,6 +321,7 @@ async function renderHoF() {
         if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:14px 8px;color:var(--muted);font-size:10px;letter-spacing:1px;">No signals yet. Run a Golden Bull scan to populate.</td></tr>';
         if (btn) btn.style.display = 'none';
       } else {
+        _hofAdminRecords = [];
         _renderHofLegacy();
       }
       return;
@@ -331,9 +336,10 @@ async function renderHoF() {
       if (btn) btn.style.display = 'block';
       _renderHofAdminTable(records);
     } else {
+      _hofAdminRecords = [];
       if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${records.length} TOTAL SIGNALS DETECTED`;
       if (btn) btn.style.display = 'none';
-      await _renderHofPublicTable(records);
+      await _renderHofPublicTable(records, gen);
     }
   } catch (e) {
     console.error('[HOF] renderHoF error:', e.message);
@@ -341,7 +347,7 @@ async function renderHoF() {
   }
 }
 
-async function _renderHofPublicTable(records) {
+async function _renderHofPublicTable(records, gen) {
   const tbody = document.getElementById('hofTbody');
   const btn   = document.getElementById('hofReturnBtn');
   if (btn) btn.style.display = 'none';
@@ -354,6 +360,7 @@ async function _renderHofPublicTable(records) {
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
 
   const renderRows = (rows) => {
+    if (gen !== _hofRenderGen) return; // admin may have logged in mid-fetch
     if (!tbody) return;
     tbody.innerHTML = rows.map(s => {
       const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -465,6 +472,8 @@ function _renderHofLegacy() {
 }
 
 async function loadHofReturns() {
+  if (_hofReturnLoading) return;
+  _hofReturnLoading = true;
   const btn = document.getElementById('hofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
@@ -520,6 +529,7 @@ async function loadHofReturns() {
     } catch (_) {}
   }
 
+  _hofReturnLoading = false;
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
