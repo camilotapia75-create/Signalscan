@@ -373,7 +373,7 @@ async function _renderHofPublicTable(records) {
   // Show tickers immediately so the table is never blank
   renderRows(unique.map(r => ({ ...r, pct: null })));
 
-  // Fetch all prices in ONE call via the proven /api/proxy using YF's batch quote endpoint
+  // Fetch current prices for all unique tickers via batch quote endpoint
   try {
     const symbols  = unique.map(r => r.ticker).join(',');
     const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
@@ -387,19 +387,22 @@ async function _renderHofPublicTable(records) {
       if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
     }
 
-    const withPct = unique.map(r => {
+    // Compute % gain for ALL records (not just most-recent per ticker)
+    const withPct = records.map(r => {
       const cur = prices[r.ticker];
-      if (!cur) return { ...r, pct: null };
+      if (!cur) return null;
       return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
-    });
+    }).filter(Boolean);
 
-    const top20 = withPct
-      .sort((a, b) => {
-        if (a.pct == null && b.pct == null) return 0;
-        if (a.pct == null) return 1;
-        if (b.pct == null) return -1;
-        return b.pct - a.pct;
-      })
+    // Per ticker, keep only the entry with the best (highest) % gain
+    const bestByTicker = new Map();
+    for (const r of withPct) {
+      const existing = bestByTicker.get(r.ticker);
+      if (!existing || r.pct > existing.pct) bestByTicker.set(r.ticker, r);
+    }
+
+    const top20 = [...bestByTicker.values()]
+      .sort((a, b) => b.pct - a.pct)
       .slice(0, 20);
 
     renderRows(top20);
