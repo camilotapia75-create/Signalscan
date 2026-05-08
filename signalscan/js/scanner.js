@@ -351,11 +351,30 @@ async function _renderHofPublicTable(records) {
   for (const r of records) {
     if (!byTicker.has(r.ticker)) byTicker.set(r.ticker, r);
   }
-  const unique = [...byTicker.values()];
+  // Sort by conviction as initial order while prices load
+  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
 
-  if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="padding:14px 8px;color:var(--muted);font-size:10px;letter-spacing:1px;">COMPUTING RETURNS...</td></tr>`;
+  const renderRows = (rows) => {
+    if (!tbody) return;
+    tbody.innerHTML = rows.map(s => {
+      const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const price  = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color  = s.pct != null ? (s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)') : 'var(--muted)';
+      const pctStr = s.pct != null ? `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%` : '—';
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
+      </tr>`;
+    }).join('');
+  };
 
-  // Fetch current prices in batches
+  // Show tickers immediately so the table is never blank
+  renderRows(unique.map(r => ({ ...r, pct: null })));
+
+  // Fetch current prices in background, re-render sorted by % gain when done
   const BATCH = 10;
   const results = [];
   for (let i = 0; i < unique.length; i += BATCH) {
@@ -364,30 +383,24 @@ async function _renderHofPublicTable(records) {
       try {
         const data = await fetchStockData(r.ticker, '1d|5d');
         const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-        if (!cur) return null;
+        if (!cur) return { ...r, pct: null };
         return { ...r, pct: (cur - r.signal_price) / r.signal_price * 100 };
-      } catch (_) { return null; }
+      } catch (_) { return { ...r, pct: null }; }
     }));
     results.push(...settled);
   }
 
-  const top20 = results.filter(Boolean).sort((a, b) => b.pct - a.pct).slice(0, 20);
+  // Sort: tickers with % gains first (descending), unknown at bottom
+  const top20 = results
+    .sort((a, b) => {
+      if (a.pct == null && b.pct == null) return 0;
+      if (a.pct == null) return 1;
+      if (b.pct == null) return -1;
+      return b.pct - a.pct;
+    })
+    .slice(0, 20);
 
-  if (!tbody || !top20.length) { if (tbody) tbody.innerHTML = ''; return; }
-
-  tbody.innerHTML = top20.map(s => {
-    const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-    const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-    const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
-    return `<tr>
-      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
-      <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-      <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-      <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-      <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
-    </tr>`;
-  }).join('');
+  renderRows(top20);
 }
 
 function _renderHofAdminTable(records) {
