@@ -346,12 +346,11 @@ async function _renderHofPublicTable(records) {
   const btn   = document.getElementById('hofReturnBtn');
   if (btn) btn.style.display = 'none';
 
-  // One entry per ticker (most recent signal)
+  // One entry per ticker (most recent signal), capped at 30 for price fetching
   const byTicker = new Map();
   for (const r of records) {
     if (!byTicker.has(r.ticker)) byTicker.set(r.ticker, r);
   }
-  // Sort by conviction as initial order while prices load
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
 
   const renderRows = (rows) => {
@@ -374,33 +373,31 @@ async function _renderHofPublicTable(records) {
   // Show tickers immediately so the table is never blank
   renderRows(unique.map(r => ({ ...r, pct: null })));
 
-  // Fetch current prices in background, re-render sorted by % gain when done
-  const BATCH = 10;
-  const results = [];
-  for (let i = 0; i < unique.length; i += BATCH) {
-    const batch = unique.slice(i, i + BATCH);
-    const settled = await Promise.all(batch.map(async r => {
-      try {
-        const data = await fetchStockData(r.ticker, '1d|5d');
-        const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-        if (!cur) return { ...r, pct: null };
-        return { ...r, pct: (cur - r.signal_price) / r.signal_price * 100 };
-      } catch (_) { return { ...r, pct: null }; }
-    }));
-    results.push(...settled);
+  // Fetch all prices in ONE server-side batch call (no CORS issues, proper YF auth)
+  try {
+    const tickerParam = unique.map(r => r.ticker).join(',');
+    const res   = await fetch(`/api/hof/prices?tickers=${encodeURIComponent(tickerParam)}`);
+    const { prices } = await res.json();
+
+    const withPct = unique.map(r => {
+      const cur = prices[r.ticker];
+      if (!cur) return { ...r, pct: null };
+      return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
+    });
+
+    const top20 = withPct
+      .sort((a, b) => {
+        if (a.pct == null && b.pct == null) return 0;
+        if (a.pct == null) return 1;
+        if (b.pct == null) return -1;
+        return b.pct - a.pct;
+      })
+      .slice(0, 20);
+
+    renderRows(top20);
+  } catch (e) {
+    console.error('[HOF] batch price fetch failed:', e.message);
   }
-
-  // Sort: tickers with % gains first (descending), unknown at bottom
-  const top20 = results
-    .sort((a, b) => {
-      if (a.pct == null && b.pct == null) return 0;
-      if (a.pct == null) return 1;
-      if (b.pct == null) return -1;
-      return b.pct - a.pct;
-    })
-    .slice(0, 20);
-
-  renderRows(top20);
 }
 
 function _renderHofAdminTable(records) {
