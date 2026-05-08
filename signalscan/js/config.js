@@ -25,6 +25,18 @@
 //   CREATE POLICY "Users manage own watchlist" ON public.watchlists
 //     FOR ALL USING (auth.uid() = user_id);
 //
+//   CREATE TABLE public.golden_bull_hof (
+//     id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+//     ticker       TEXT NOT NULL,
+//     detected_at  TIMESTAMPTZ DEFAULT now() NOT NULL,
+//     signal_price NUMERIC NOT NULL,
+//     conviction   INT NOT NULL
+//   );
+//   CREATE INDEX ON public.golden_bull_hof (detected_at DESC);
+//   ALTER TABLE public.golden_bull_hof ENABLE ROW LEVEL SECURITY;
+//   CREATE POLICY "public read" ON public.golden_bull_hof FOR SELECT USING (true);
+//   -- Writes go through /api/hof/record using service role key (no direct insert policy)
+//
 // Vercel environment variables to set:
 // ─────────────────────────────────────
 //   SUPABASE_URL              (same value as supabaseUrl below)
