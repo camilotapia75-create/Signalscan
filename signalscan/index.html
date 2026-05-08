@@ -156,29 +156,57 @@
     </div>
   </div>
   <div id="goldenBullAnchor" class="scanner-section">
+    <!-- Shared header with tab switcher -->
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px;">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;">🐂 GOLDEN BULL <span style="color:var(--gold);">SCANNER</span></div>
         <div style="font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:1px;line-height:1.7;">SCANS 150+ TOP STOCKS &amp; CRYPTO · FINDS STOCKS WHERE BOTH ENGINES AGREE <span style="color:var(--accent);">BULLISH</span></div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div style="display:flex;gap:0;border:1px solid var(--border);">
+          <button id="scanTabOriginal" onclick="switchScanTab('original')" style="background:var(--gold);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🐂 ORIGINAL</button>
+          <button id="scanTabBullpen"  onclick="switchScanTab('bullpen')"  style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🧪 BULL PEN</button>
+        </div>
         <select id="scanTimeframe" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;outline:none;">
           <option value="1wk|1y">1Y WEEKLY</option>
           <option value="1d|6mo">6M DAILY</option>
         </select>
         <button class="scan-btn" id="scanBtn" onclick="runScanner()">🔍 SCAN MARKET</button>
+        <button class="scan-btn" id="bpScanBtn" onclick="runBullPenScanner()" style="display:none;background:rgba(255,140,80,0.12);border:1px solid rgba(255,140,80,0.4);color:#ff9055;">🧪 SCAN BULL PEN</button>
       </div>
     </div>
-    <div id="scanProgress" style="display:none;margin-bottom:20px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="scanStatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="scanProgressCount">0 / 0</span></div>
-      <div class="scan-progress-bg"><div class="scan-progress-fill" id="scanProgressBar"></div></div>
-      <div style="font-size:10px;color:var(--accent);margin-top:6px;letter-spacing:0.5px;min-height:14px;" id="scanFoundMsg"></div>
+
+    <!-- Original scanner panel -->
+    <div id="scanPanelOriginal">
+      <div id="scanProgress" style="display:none;margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="scanStatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="scanProgressCount">0 / 0</span></div>
+        <div class="scan-progress-bg"><div class="scan-progress-fill" id="scanProgressBar"></div></div>
+        <div style="font-size:10px;color:var(--accent);margin-top:6px;letter-spacing:0.5px;min-height:14px;" id="scanFoundMsg"></div>
+      </div>
+      <div id="scanResultsHeader" style="display:none;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;"></div>
+      <div id="scanResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+      <div id="scanEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
+        <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🔍</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.8;">No golden bull signals detected in current conditions.<br><span style="font-size:11px;">Try during market hours for fresher data.</span></div>
+      </div>
     </div>
-    <div id="scanResultsHeader" style="display:none;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;"></div>
-    <div id="scanResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
-    <div id="scanEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
-      <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🔍</div>
-      <div style="font-size:12px;color:var(--muted);line-height:1.8;">No golden bull signals detected in current conditions.<br><span style="font-size:11px;">Try during market hours for fresher data.</span></div>
+
+    <!-- Bull Pen scanner panel -->
+    <div id="scanPanelBullpen" style="display:none;">
+      <div style="background:rgba(255,140,80,0.06);border:1px solid rgba(255,140,80,0.22);padding:11px 16px;margin-bottom:20px;font-size:10px;color:rgba(255,160,100,0.9);letter-spacing:0.8px;line-height:1.8;">
+        🧪 EXPERIMENTAL — Volume surge detection · Relative strength vs S&amp;P 500 · Bollinger squeeze breakout · New-high momentum scoring · True 0–100 conviction range. Signals tracked separately vs the original formula.
+      </div>
+      <div id="bpProgress" style="display:none;margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="bpStatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="bpProgressCount">0 / 0</span></div>
+        <div class="scan-progress-bg"><div class="scan-progress-fill" id="bpProgressBar" style="background:linear-gradient(90deg,#ff7a30,#ff9055);"></div></div>
+        <div style="font-size:10px;color:#ff9055;margin-top:6px;letter-spacing:0.5px;min-height:14px;" id="bpFoundMsg"></div>
+      </div>
+      <div id="bpResultsHeader" style="display:none;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;"></div>
+      <div id="bpResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+      <div id="bpEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
+        <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🧪</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.8;">No Bull Pen signals detected in current conditions.</div>
+      </div>
     </div>
   </div>
 
@@ -254,6 +282,27 @@
     </div>
     <button id="hofReturnBtn" onclick="loadHofReturns()" style="margin-top:14px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">LOAD RETURNS</button>
   </div>
+
+  <!-- ── Bull Pen Hall of Fame ─────────────────────────────────────────────── -->
+  <div id="bpHofSection" style="display:none;padding:32px;border-top:1px solid rgba(255,140,80,0.3);">
+    <div id="bpHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#ff9055;">🧪 BULL PEN HALL OF FAME</div>
+    <div id="bpHofSubtitle" style="font-size:10px;color:rgba(255,150,80,0.7);letter-spacing:1px;margin-bottom:20px;">EXPERIMENTAL FORMULA · <span id="bpHofCount">0</span> SIGNALS DETECTED</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid rgba(255,140,80,0.25);">
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
+            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">RETURN</th>
+          </tr>
+        </thead>
+        <tbody id="bpHofTbody"></tbody>
+      </table>
+    </div>
+    <button id="bpHofReturnBtn" onclick="loadBullPenReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(255,140,80,0.3);color:rgba(255,150,80,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#ff9055';this.style.color='#ff9055'" onmouseout="this.style.borderColor='rgba(255,140,80,0.3)';this.style.color='rgba(255,150,80,0.6)'">LOAD RETURNS</button>
+  </div>
 </main>
 
 <!-- ── Auth Modal ──────────────────────────────────────────────────────────── -->
@@ -285,13 +334,13 @@
 </div>
 
 <div style="text-align:center;padding:24px 32px;font-size:10px;color:#3a4a5a;letter-spacing:0.5px;border-top:1px solid #1c2330;margin-top:32px;">FOR INFORMATIONAL PURPOSES ONLY. NOT FINANCIAL ADVICE.</div>
-<script src="js/config.js?v=18"></script>
-<script src="js/calc.js?v=18"></script>
-<script src="js/analysis.js?v=18"></script>
-<script src="js/scanner.js?v=18"></script>
-<script src="js/app.js?v=18"></script>
-<script src="js/auth.js?v=18"></script>
-<script src="js/watchlist.js?v=18"></script>
+<script src="js/config.js?v=19"></script>
+<script src="js/calc.js?v=19"></script>
+<script src="js/analysis.js?v=19"></script>
+<script src="js/scanner.js?v=19"></script>
+<script src="js/app.js?v=19"></script>
+<script src="js/auth.js?v=19"></script>
+<script src="js/watchlist.js?v=19"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
 </html>

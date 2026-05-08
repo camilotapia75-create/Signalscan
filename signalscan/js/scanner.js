@@ -146,7 +146,7 @@ function computeIndicators(data) {
   }
 }
 
-async function _runScanCore(tickers, ids) {
+async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn) {
   const { btnId, progressId, gridId, emptyId, headerId, foundMsgId, statusId, countId, barId, btnLabel } = ids;
   const btn      = document.getElementById(btnId);
   const progress = document.getElementById(progressId);
@@ -175,7 +175,7 @@ async function _runScanCore(tickers, ids) {
   for (let i = 0; i < total; i++) {
     const ticker = tickers[i];
     if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
-    const r = await quickAnalyzeForScan(ticker);
+    const r = await (analyzeFn || quickAnalyzeForScan)(ticker);
     done++;
     if (fill)    fill.style.width          = `${Math.round(done / total * 100)}%`;
     if (countEl) countEl.textContent       = `${done} / ${total}`;
@@ -189,7 +189,10 @@ async function _runScanCore(tickers, ids) {
   }
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
-  if (bulls.length > 0) { await hofRecord(bulls); await renderHoF(); }
+  if (bulls.length > 0) {
+    await (recordFn || hofRecord)(bulls);
+    await (renderFn || renderHoF)();
+  }
 
   const allFailed = failed > 0 && failed === done;
   const mostFailed = failed > total * 0.7;
@@ -563,9 +566,310 @@ async function _migrateHofToSupabase() {
   }
 }
 
+// ── Bull Pen Scanner ──────────────────────────────────────────────────────────
+
+const BP_HOF_KEY = 'signalscan_bullpen_hof';
+let _bpAdminRecords  = [];
+let _bpRenderGen     = 0;
+let _bpReturnLoading = false;
+let _activeScanTab   = 'original';
+
+function switchScanTab(tab) {
+  _activeScanTab = tab;
+  const isOrig = tab === 'original';
+
+  document.getElementById('scanPanelOriginal').style.display = isOrig ? '' : 'none';
+  document.getElementById('scanPanelBullpen').style.display  = isOrig ? 'none' : '';
+  document.getElementById('scanBtn').style.display   = isOrig ? '' : 'none';
+  document.getElementById('bpScanBtn').style.display = isOrig ? 'none' : '';
+
+  const origTab = document.getElementById('scanTabOriginal');
+  const bpTab   = document.getElementById('scanTabBullpen');
+  if (origTab) {
+    origTab.style.background = isOrig ? 'var(--gold)' : 'transparent';
+    origTab.style.color      = isOrig ? '#000' : 'var(--muted)';
+  }
+  if (bpTab) {
+    bpTab.style.background = isOrig ? 'transparent' : 'rgba(255,140,80,0.18)';
+    bpTab.style.color      = isOrig ? 'var(--muted)' : '#ff9055';
+  }
+}
+
+async function quickAnalyzeForScanV2(ticker, spyReturn) {
+  try {
+    const data = await fetchStockData(ticker, getScanTimeframe());
+    if (!data || !data.closes) return { _networkFail: true };
+    const closes = data.closes.filter(Boolean);
+    if (closes.length < 45) return null;
+    const indData = computeIndicators(data);
+    if (!indData) return null;
+
+    if (!ticker.includes('-USD') && indData.lastClose < 3) return null;
+
+    const highs   = data.highs.filter(Boolean);
+    const lows    = data.lows.filter(Boolean);
+
+    const yearHigh  = Math.max(...highs);
+    const yearLow   = Math.min(...lows);
+    const rangeSpan = yearHigh - yearLow;
+    const nearYearlyLow     = rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20;
+    const e50               = calcEMA(closes, 50);
+    const ema50Collapsing   = e50.length >= 9 && (e50[e50.length-1] - e50[e50.length-9]) / e50[e50.length-9] < -0.08;
+    if (nearYearlyLow && ema50Collapsing) return null;
+
+    const sr  = findSupportResistance(highs, lows, closes);
+    const pa  = analyzePriceAction(data);
+    const rev  = generateAnalysis(ticker, indData, sr, pa);
+    const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
+
+    let revScore  = rev.score;
+    let contScore = cont.score;
+
+    const { volRatio, lastClose, ema20, atr } = indData;
+
+    // 1. Volume surge — pre-pump anomaly detection
+    if (volRatio > 2.5) {
+      revScore  = Math.min(1, revScore  + 0.30);
+      contScore = Math.min(1, contScore + 0.30);
+    } else if (volRatio > 1.8) {
+      revScore  = Math.min(1, revScore  + 0.15);
+      contScore = Math.min(1, contScore + 0.15);
+    }
+
+    // 2. Near 52-week high with elevated volume = breakout momentum (inverted from V1 penalty)
+    const near52High = (yearHigh - lastClose) / yearHigh < 0.08;
+    if (near52High && volRatio > 1.2) {
+      revScore  = Math.min(1, revScore  + 0.25);
+      contScore = Math.min(1, contScore + 0.20);
+    }
+
+    // 3. Bollinger squeeze breakout — short-term ATR expanding vs long-term ATR
+    const atrShort = calcATR(highs, lows, closes, 5);
+    if (atrShort > atr * 1.30 && lastClose > ema20) {
+      contScore = Math.min(1, contScore + 0.20);
+    }
+
+    // 4. Relative strength vs SPY — 20-day return comparison
+    if (spyReturn !== null && closes.length >= 21) {
+      const stockReturn = (lastClose - closes[closes.length - 21]) / closes[closes.length - 21] * 100;
+      const rsVsSpy = stockReturn - spyReturn;
+      if (rsVsSpy > 8)        contScore = Math.min(1, contScore + 0.20);
+      else if (rsVsSpy > 4)   contScore = Math.min(1, contScore + 0.10);
+      else if (rsVsSpy < -10) contScore = Math.max(-1, contScore - 0.20);
+    }
+
+    const isGoldenBull = revScore > 0.2 && contScore > 0.25;
+
+    // True conviction range 0–100 (V1 floors at 50)
+    const avgScore = (revScore + contScore) / 2;
+    const conviction = Math.round(Math.min(100, Math.max(0, 50 + (avgScore - 0.2) / 0.8 * 50)));
+
+    console.log(`[BULL PEN] ${ticker}: rev=${revScore.toFixed(2)} cont=${contScore.toFixed(2)} => ${isGoldenBull ? '🧪 BULL' : 'skip'}`);
+
+    const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
+    const spark = closes.slice(-30);
+    const nearestRes = sr.resistance.filter(r => r.price > lastClose)[0];
+    const estimatedUpside = nearestRes
+      ? (nearestRes.price - lastClose) / lastClose * 100
+      : Math.max(0, (yearHigh - lastClose) / lastClose * 100);
+
+    return { ticker, price: lastClose, isGoldenBull, conviction, topSignal, revScore, contScore, spark, estimatedUpside };
+  } catch (e) {
+    console.error(`[BULL PEN] ${ticker}: failed —`, e.message);
+    return { _networkFail: true };
+  }
+}
+
+async function runBullPenScanner() {
+  let spyReturn = null;
+  try {
+    const spyData = await fetchStockData('SPY', getScanTimeframe());
+    if (spyData?.closes) {
+      const sc = spyData.closes.filter(Boolean);
+      if (sc.length >= 21) spyReturn = (sc[sc.length-1] - sc[sc.length-21]) / sc[sc.length-21] * 100;
+    }
+    console.log(`[BULL PEN] SPY 20-day return: ${spyReturn?.toFixed(2) ?? 'unavailable'}%`);
+  } catch (_) {}
+
+  return _runScanCore(SCAN_UNIVERSE, {
+    btnId:     'bpScanBtn',      progressId: 'bpProgress',     gridId:    'bpResultsGrid',
+    emptyId:   'bpEmpty',        headerId:   'bpResultsHeader', foundMsgId:'bpFoundMsg',
+    statusId:  'bpStatusText',   countId:    'bpProgressCount', barId:     'bpProgressBar',
+    btnLabel:  '🧪 SCAN AGAIN',
+  }, (t) => quickAnalyzeForScanV2(t, spyReturn), hofRecordBullPen, renderBullPenHoF);
+}
+
+async function hofRecordBullPen(bulls) {
+  try {
+    await fetch('/api/bullpen/record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
+    });
+  } catch (e) {
+    console.error('[BP HOF] record failed:', e.message);
+  }
+  try {
+    const raw   = localStorage.getItem(BP_HOF_KEY);
+    const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
+    const now   = Date.now();
+    for (const b of bulls) {
+      const dup = store.signals.find(s => s.ticker === b.ticker && now - s.ts < 7 * 86400000);
+      if (!dup) store.signals.push({ ticker: b.ticker, ts: now, price: b.price, conviction: b.conviction });
+    }
+    store.signals = store.signals.slice(-500);
+    localStorage.setItem(BP_HOF_KEY, JSON.stringify(store));
+  } catch (_) {}
+}
+
+async function renderBullPenHoF() {
+  const section = document.getElementById('bpHofSection');
+  if (!section) return;
+
+  const isAdmin = typeof currentUser !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
+  const gen = ++_bpRenderGen;
+
+  try {
+    const sb = getSupabase();
+    const { data: records, error } = await sb
+      .from('bull_pen_hof')
+      .select('ticker,detected_at,signal_price,conviction')
+      .order('detected_at', { ascending: false })
+      .limit(1000);
+
+    if (gen !== _bpRenderGen) return;
+    if (error) throw error;
+
+    if (!records?.length) { section.style.display = 'none'; return; }
+
+    section.style.display = 'block';
+    const titleEl    = document.getElementById('bpHofTitle');
+    const subtitleEl = document.getElementById('bpHofSubtitle');
+    const btn        = document.getElementById('bpHofReturnBtn');
+
+    if (isAdmin) {
+      _bpAdminRecords = records;
+      if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HALL OF FAME — ADMIN';
+      if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ALL ${records.length} SIGNALS`;
+      if (btn) btn.style.display = 'block';
+      _renderBullPenAdminTable(records);
+    } else {
+      _bpAdminRecords = [];
+      if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HALL OF FAME';
+      if (subtitleEl) subtitleEl.textContent = `EXPERIMENTAL FORMULA · ${records.length} SIGNALS DETECTED`;
+      if (btn) btn.style.display = 'none';
+      await _renderBullPenPublicTable(records, gen);
+    }
+  } catch (e) {
+    console.error('[BP HOF] render error:', e.message);
+    section.style.display = 'none';
+  }
+}
+
+async function _renderBullPenPublicTable(records, gen) {
+  const tbody = document.getElementById('bpHofTbody');
+  if (!tbody) return;
+
+  const byTicker = new Map();
+  for (const r of records) {
+    if (!byTicker.has(r.ticker)) byTicker.set(r.ticker, r);
+  }
+  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
+
+  const renderRows = (rows) => {
+    if (gen !== _bpRenderGen) return;
+    tbody.innerHTML = rows.map(s => {
+      const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      const price  = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color  = s.pct != null ? (s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)') : 'var(--muted)';
+      const pctStr = s.pct != null ? `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%` : '—';
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
+      </tr>`;
+    }).join('');
+  };
+
+  renderRows(unique.map(r => ({ ...r, pct: null })));
+
+  try {
+    const symbols  = unique.map(r => r.ticker).join(',');
+    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
+    const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
+    if (!res.ok) throw new Error(`proxy ${res.status}`);
+    const json   = await res.json();
+    const quotes = json.quoteResponse?.result || [];
+    const prices = {};
+    for (const q of quotes) {
+      if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
+    }
+
+    const withPct = records.map(r => {
+      const cur = prices[r.ticker];
+      if (!cur) return null;
+      return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
+    }).filter(Boolean);
+
+    const bestByTicker = new Map();
+    for (const r of withPct) {
+      const existing = bestByTicker.get(r.ticker);
+      if (!existing || r.pct > existing.pct) bestByTicker.set(r.ticker, r);
+    }
+
+    renderRows([...bestByTicker.values()].sort((a, b) => b.pct - a.pct).slice(0, 20));
+  } catch (e) {
+    console.error('[BP HOF] price fetch failed:', e.message);
+  }
+}
+
+function _renderBullPenAdminTable(records) {
+  const tbody = document.getElementById('bpHofTbody');
+  if (!tbody) return;
+  tbody.innerHTML = records.map(s => {
+    const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+    const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+    const ts    = new Date(s.detected_at).getTime();
+    return `<tr>
+      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
+      <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+      <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+      <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+      <td id="bpret-${s.ticker}-${ts}" style="padding:7px 8px;color:var(--muted);">—</td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadBullPenReturns() {
+  if (_bpReturnLoading) return;
+  _bpReturnLoading = true;
+  const btn = document.getElementById('bpHofReturnBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
+
+  await Promise.all(_bpAdminRecords.slice(0, 50).map(async s => {
+    try {
+      const data = await fetchStockData(s.ticker, '1d|5d');
+      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      if (!cur) return;
+      const ret = (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100;
+      const el  = document.getElementById(`bpret-${s.ticker}-${new Date(s.detected_at).getTime()}`);
+      if (el) {
+        el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
+        el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      }
+    } catch (_) {}
+  }));
+
+  _bpReturnLoading = false;
+  if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   await _migrateHofToSupabase();
   renderHoF();
+  renderBullPenHoF();
   // Pre-load NVDA so new visitors see the analysis tool in action
   const input = document.getElementById('tickerInput');
   if (input && !input.value.trim()) {
