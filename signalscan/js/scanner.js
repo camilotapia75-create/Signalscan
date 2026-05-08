@@ -343,8 +343,10 @@ async function renderHoF() {
 
     if (isAdmin) {
       _hofAdminRecords = records;
+      const legacyCount  = records.filter(r => !r.source).length;
+      const scannerTagged = records.filter(r => r.source === 'scanner').length;
       if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL SCANNER HOF — ADMIN';
-      if (subtitleEl) subtitleEl.textContent = `SCANNER ONLY — ${records.length} SIGNALS`;
+      if (subtitleEl) subtitleEl.textContent = `${scannerTagged} SCANNER · ${legacyCount} LEGACY (pre-migration)`;
       if (btn) btn.style.display = 'block';
       _renderHofAdminTable(records);
     } else {
@@ -439,8 +441,10 @@ function _renderHofAdminTable(records, tbodyId = 'hofTbody', retPrefix = 'hret')
     const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
     const ts    = new Date(s.detected_at).getTime();
     const src   = s.source === 'watchlist'
-      ? '<span style="font-size:9px;color:var(--muted);letter-spacing:0.5px;">WATCHLIST</span>'
-      : '<span style="font-size:9px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>';
+      ? '<span style="font-size:9px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>'
+      : s.source === 'scanner'
+        ? '<span style="font-size:9px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>'
+        : '<span style="font-size:9px;color:var(--muted);letter-spacing:0.5px;">LEGACY</span>';
     return `<tr>
       <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${src}</td>
       <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
@@ -571,24 +575,32 @@ async function renderAllHoF() {
 
     if (!records?.length) { section.style.display = 'none'; return; }
 
+    const watchlistCount = records.filter(r => r.source === 'watchlist').length;
+    const scannerCount   = records.length - watchlistCount;
+
+    // Non-admin: only show this section when there's actual watchlist data to show
+    if (!isAdmin) {
+      if (!watchlistCount) { section.style.display = 'none'; return; }
+      section.style.display = 'block';
+      const subtitleEl = document.getElementById('allHofSubtitle');
+      const uniqueCount = new Set(records.map(r => r.ticker)).size;
+      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${uniqueCount} TICKERS`;
+      const btn = document.getElementById('allHofReturnBtn');
+      if (btn) btn.style.display = 'none';
+      _allHofAdminRecords = [];
+      await _renderHofPublicTable(records, gen, 'allHofTbody', 'allHofReturnBtn', () => _allRenderGen);
+      return;
+    }
+
     section.style.display = 'block';
+    _allHofAdminRecords = records;
     const titleEl    = document.getElementById('allHofTitle');
     const subtitleEl = document.getElementById('allHofSubtitle');
     const btn        = document.getElementById('allHofReturnBtn');
-
-    if (isAdmin) {
-      _allHofAdminRecords = records;
-      if (titleEl)    titleEl.textContent    = '⚡ COMBINED HOF — SCANNER + WATCHLIST (ADMIN)';
-      if (subtitleEl) subtitleEl.textContent = `ALL SOURCES — ${records.length} SIGNALS`;
-      if (btn) btn.style.display = 'block';
-      _renderHofAdminTable(records, 'allHofTbody', 'allret');
-    } else {
-      _allHofAdminRecords = [];
-      const uniqueCount = new Set(records.map(r => r.ticker)).size;
-      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${uniqueCount} TICKERS`;
-      if (btn) btn.style.display = 'none';
-      await _renderHofPublicTable(records, gen, 'allHofTbody', 'allHofReturnBtn', () => _allRenderGen);
-    }
+    if (titleEl)    titleEl.textContent    = '⚡ COMBINED HOF — SCANNER + WATCHLIST (ADMIN)';
+    if (subtitleEl) subtitleEl.textContent = `${scannerCount} SCANNER · ${watchlistCount} WATCHLIST`;
+    if (btn) btn.style.display = 'block';
+    _renderHofAdminTable(records, 'allHofTbody', 'allret');
   } catch (e) {
     console.error('[ALL HOF] render error:', e.message);
     section.style.display = 'none';
