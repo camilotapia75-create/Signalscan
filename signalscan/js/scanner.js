@@ -502,7 +502,38 @@ async function loadHofReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+async function _migrateHofToSupabase() {
+  const MIG_KEY = 'signalscan_hof_migrated';
+  if (localStorage.getItem(MIG_KEY)) return;
+  try {
+    const raw = localStorage.getItem(HOF_KEY);
+    if (!raw) { localStorage.setItem(MIG_KEY, '1'); return; }
+    const store = JSON.parse(raw);
+    if (!store.signals?.length) { localStorage.setItem(MIG_KEY, '1'); return; }
+    const signals = store.signals.map(s => ({
+      ticker:      s.ticker,
+      price:       s.price,
+      conviction:  s.conviction,
+      detected_at: new Date(s.ts).toISOString(),
+    }));
+    console.log(`[HOF] Migrating ${signals.length} signals from localStorage to Supabase...`);
+    const r = await fetch('/api/hof/migrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signals }),
+    });
+    if (r.ok) {
+      const d = await r.json();
+      console.log(`[HOF] Migration complete — ${d.migrated} signals uploaded.`);
+      localStorage.setItem(MIG_KEY, '1');
+    }
+  } catch (e) {
+    console.error('[HOF] Migration failed:', e.message);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  await _migrateHofToSupabase();
   renderHoF();
   // Pre-load NVDA so new visitors see the analysis tool in action
   const input = document.getElementById('tickerInput');
