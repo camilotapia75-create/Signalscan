@@ -190,8 +190,12 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn) {
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
   if (bulls.length > 0) {
-    await (recordFn || hofRecord)(bulls);
-    await (renderFn || renderHoF)();
+    try {
+      await (recordFn || hofRecord)(bulls);
+      await (renderFn || renderHoF)();
+    } catch (e) {
+      console.error('[SCANNER] post-scan record/render failed:', e.message);
+    }
   }
 
   const allFailed = failed > 0 && failed === done;
@@ -275,6 +279,7 @@ async function hofRecord(bulls) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
+      signal: AbortSignal.timeout(10000),
     });
   } catch (e) {
     console.error('[HOF] record failed:', e.message);
@@ -705,6 +710,7 @@ async function hofRecordBullPen(bulls) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
+      signal: AbortSignal.timeout(10000),
     });
   } catch (e) {
     console.error('[BP HOF] record failed:', e.message);
