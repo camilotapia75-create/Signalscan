@@ -235,12 +235,14 @@ function runScanner() {
 function runCustomScanner() {
   const tickers = window._watchlistTickers || [];
   if (tickers.length === 0) return;
+  // Watchlist results show in scan cards but don't write to golden_bull_hof —
+  // keeps the HoF a clean comparison of standardized universe only.
   return _runScanCore(tickers, {
     btnId: 'customScanBtn',       progressId: 'customScanProgress', gridId: 'customScanGrid',
     emptyId: 'customScanEmpty',   headerId: 'customScanHeader',     foundMsgId: 'customScanFoundMsg',
     statusId: 'customScanStatus', countId: 'customScanCount',       barId: 'customScanBar',
     btnLabel: '🔍 SCAN AGAIN',
-  });
+  }, null, async () => {}, null);
 }
 
 function renderScanCard(r) {
