@@ -373,11 +373,19 @@ async function _renderHofPublicTable(records) {
   // Show tickers immediately so the table is never blank
   renderRows(unique.map(r => ({ ...r, pct: null })));
 
-  // Fetch all prices in ONE server-side batch call (no CORS issues, proper YF auth)
+  // Fetch all prices in ONE call via the proven /api/proxy using YF's batch quote endpoint
   try {
-    const tickerParam = unique.map(r => r.ticker).join(',');
-    const res   = await fetch(`/api/hof/prices?tickers=${encodeURIComponent(tickerParam)}`);
-    const { prices } = await res.json();
+    const symbols  = unique.map(r => r.ticker).join(',');
+    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
+    const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
+    if (!res.ok) throw new Error(`proxy ${res.status}`);
+    const json   = await res.json();
+    const quotes = json.quoteResponse?.result || [];
+
+    const prices = {};
+    for (const q of quotes) {
+      if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
+    }
 
     const withPct = unique.map(r => {
       const cur = prices[r.ticker];
@@ -396,7 +404,7 @@ async function _renderHofPublicTable(records) {
 
     renderRows(top20);
   } catch (e) {
-    console.error('[HOF] batch price fetch failed:', e.message);
+    console.error('[HOF] price fetch failed:', e.message);
   }
 }
 
