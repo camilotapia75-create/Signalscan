@@ -281,9 +281,8 @@ async function renderHoF() {
     const { data: records, error } = await sb
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction,source')
-      .not('source', 'eq', 'watchlist')
       .order('detected_at', { ascending: false })
-      .limit(1000);
+      .limit(5000);
 
     if (gen !== _hofRenderGen) return; // a newer renderHoF() started — abort
     if (error) throw error;
@@ -295,8 +294,8 @@ async function renderHoF() {
     if (!records?.length) {
       if (isAdmin) {
         section.style.display = 'block';
-        if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL SCANNER HOF — ADMIN';
-        if (subtitleEl) subtitleEl.textContent = 'SCANNER ONLY — 0 SIGNALS';
+        if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HOF — ADMIN';
+        if (subtitleEl) subtitleEl.textContent = '0 SIGNALS';
         const tbody = document.getElementById('hofTbody');
         if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:14px 8px;color:var(--muted);font-size:10px;letter-spacing:1px;">No signals yet. Run a Golden Bull scan to populate.</td></tr>';
         if (btn) btn.style.display = 'none';
@@ -311,11 +310,14 @@ async function renderHoF() {
 
     if (isAdmin) {
       _hofAdminRecords = records;
-      const legacyCount   = records.filter(r => !r.source).length;
-      const scannerTagged = records.filter(r => r.source === 'scanner').length;
-      if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL SCANNER HOF — ADMIN';
-      if (subtitleEl) subtitleEl.textContent = `${scannerTagged} SCANNER · ${legacyCount} LEGACY (pre-migration)`;
+      const watchlistCount = records.filter(r => r.source === 'watchlist').length;
+      const scannerTagged  = records.filter(r => r.source === 'scanner').length;
+      const legacyCount    = records.filter(r => !r.source).length;
+      const uniqueCount    = new Set(records.map(r => r.ticker)).size;
+      if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HOF — ADMIN';
+      if (subtitleEl) subtitleEl.textContent = `${uniqueCount} TICKERS · ${scannerTagged} SCANNER · ${watchlistCount} WATCHLIST · ${legacyCount} LEGACY`;
       if (btn) btn.style.display = 'block';
+      _injectAdminHofAddForm();
       _renderHofAdminTable(records);
     } else {
       _hofAdminRecords = [];
@@ -338,7 +340,9 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   // One entry per ticker — keep OLDEST (first detection price), records sorted DESC
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
-  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
+  const allUnique = [...byTicker.values()];
+  // Show top 50 by conviction initially (placeholder before prices load)
+  const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
     if (gen !== getGen()) return;
@@ -359,11 +363,11 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   };
 
   // Show tickers immediately so the table is never blank
-  renderRows(unique.map(r => ({ ...r, pct: null })));
+  renderRows(initialView.map(r => ({ ...r, pct: null })));
 
-  // Fetch current prices for all unique tickers via batch quote endpoint
+  // Fetch prices for ALL unique tickers so low-conviction high-gainers aren't excluded
   try {
-    const symbols  = unique.map(r => r.ticker).join(',');
+    const symbols  = allUnique.map(r => r.ticker).join(',');
     const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
     const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
     if (!res.ok) throw new Error(`proxy ${res.status}`);
@@ -375,23 +379,99 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
       if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
     }
 
-    // Compute % gain using the oldest signal_price per ticker
-    const withPct = unique.map(r => {
+    // Compute % gain for ALL records — per ticker keep the best (highest) % gain entry
+    const withPct = records.map(r => {
       const cur = prices[r.ticker];
       if (!cur) return null;
       return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
     }).filter(Boolean);
 
-    renderRows(withPct.sort((a, b) => b.pct - a.pct).slice(0, 20));
+    const bestByTicker = new Map();
+    for (const r of withPct) {
+      const existing = bestByTicker.get(r.ticker);
+      if (!existing || r.pct > existing.pct) bestByTicker.set(r.ticker, r);
+    }
+
+    const top30 = [...bestByTicker.values()]
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 30);
+
+    renderRows(top30);
   } catch (e) {
     console.error('[HOF] price fetch failed:', e.message);
   }
 }
 
 function _adminSrcBadge(source) {
-  if (source === 'watchlist') return '<span style="font-size:9px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>';
-  if (source === 'scanner')   return '<span style="font-size:9px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>';
-  return '<span style="font-size:9px;color:var(--muted);letter-spacing:0.5px;">LEGACY</span>';
+  if (source === 'watchlist') return '<br><span style="font-size:8px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>';
+  if (source === 'scanner')   return '<br><span style="font-size:8px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>';
+  if (source === 'manual')    return '<br><span style="font-size:8px;color:var(--gold);letter-spacing:0.5px;">MANUAL</span>';
+  return '<br><span style="font-size:8px;color:var(--muted);letter-spacing:0.5px;">LEGACY</span>';
+}
+
+function _injectAdminHofAddForm() {
+  const section = document.getElementById('hofSection');
+  if (!section || document.getElementById('adminHofAddForm')) return;
+  const subtitleEl = document.getElementById('hofSubtitle');
+  const formHTML = `
+  <div id="adminHofAddForm" style="background:rgba(255,204,68,0.05);border:1px solid rgba(255,204,68,0.2);padding:14px 18px;margin-bottom:18px;">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;color:var(--gold);margin-bottom:10px;">⚡ ADMIN — ADD SIGNAL TO HOF</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">TICKER</div>
+        <input id="aHofTicker" type="text" placeholder="DDOG" maxlength="12" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;width:80px;outline:none;text-transform:uppercase;"></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">SIGNAL PRICE</div>
+        <input id="aHofPrice" type="number" placeholder="123.45" step="0.01" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;width:100px;outline:none;"></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">CONVICTION %</div>
+        <input id="aHofConviction" type="number" placeholder="75" min="0" max="100" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;width:70px;outline:none;"></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">DATE DETECTED</div>
+        <input id="aHofDate" type="date" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;outline:none;"></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">SOURCE</div>
+        <select id="aHofSource" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;outline:none;">
+          <option value="watchlist">WATCHLIST</option>
+          <option value="scanner">SCANNER</option>
+          <option value="manual">MANUAL</option>
+        </select></div>
+      <button onclick="hofAdminInsert()" style="background:var(--gold);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">+ ADD</button>
+    </div>
+    <div id="aHofMsg" style="font-size:10px;margin-top:8px;letter-spacing:0.5px;min-height:14px;"></div>
+  </div>`;
+  if (subtitleEl) subtitleEl.insertAdjacentHTML('afterend', formHTML);
+}
+
+async function hofAdminInsert() {
+  const ticker     = (document.getElementById('aHofTicker')?.value || '').trim().toUpperCase();
+  const price      = parseFloat(document.getElementById('aHofPrice')?.value);
+  const conviction = parseInt(document.getElementById('aHofConviction')?.value, 10);
+  const dateStr    = document.getElementById('aHofDate')?.value;
+  const source     = document.getElementById('aHofSource')?.value || 'manual';
+  const msgEl      = document.getElementById('aHofMsg');
+  const setMsg     = (txt, ok) => { if (msgEl) { msgEl.style.color = ok ? 'var(--accent)' : 'var(--accent2)'; msgEl.textContent = txt; } };
+
+  if (!ticker || !/^[A-Z0-9.\-]{1,12}$/.test(ticker)) { setMsg('Invalid ticker.', false); return; }
+  if (isNaN(price) || price <= 0) { setMsg('Invalid price.', false); return; }
+  if (isNaN(conviction) || conviction < 0 || conviction > 100) { setMsg('Invalid conviction (0–100).', false); return; }
+
+  setMsg('Inserting…', true);
+  try {
+    const session = (await getSupabase().auth.getSession()).data?.session;
+    const token   = session?.access_token;
+    if (!token) { setMsg('Not authenticated.', false); return; }
+
+    const body = { ticker, price, conviction, source };
+    if (dateStr) body.detectedAt = dateStr;
+
+    const res = await fetch('/api/hof/admin-insert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); setMsg(`Error: ${e.error || res.status}`, false); return; }
+    setMsg(`✓ ${ticker} added to HOF.`, true);
+    ['aHofTicker','aHofPrice','aHofConviction','aHofDate'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    setTimeout(() => renderHoF(), 800);
+  } catch (e) {
+    setMsg(`Error: ${e.message}`, false);
+  }
 }
 
 function _renderHofAdminTable(records, tbodyId = 'hofTbody') {
@@ -543,7 +623,7 @@ async function renderAllHoF() {
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction,source')
       .order('detected_at', { ascending: false })
-      .limit(1000);
+      .limit(5000);
 
     if (gen !== _allRenderGen) return;
     if (error) throw error;
@@ -553,20 +633,8 @@ async function renderAllHoF() {
     const watchlistCount = records.filter(r => r.source === 'watchlist').length;
     const scannerCount   = records.length - watchlistCount;
 
-    // Only show this section when there's actual watchlist data to differentiate it
-    if (!watchlistCount) { section.style.display = 'none'; return; }
-
-    if (!isAdmin) {
-      section.style.display = 'block';
-      const subtitleEl = document.getElementById('allHofSubtitle');
-      const uniqueCount = new Set(records.map(r => r.ticker)).size;
-      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${uniqueCount} TICKERS`;
-      const btn = document.getElementById('allHofReturnBtn');
-      if (btn) btn.style.display = 'none';
-      _allHofAdminRecords = [];
-      await _renderHofPublicTable(records, gen, 'allHofTbody', 'allHofReturnBtn', () => _allRenderGen);
-      return;
-    }
+    // Combined HOF is admin-only (public HOF already includes all sources)
+    if (!isAdmin) { section.style.display = 'none'; return; }
 
     section.style.display = 'block';
     _allHofAdminRecords = records;
