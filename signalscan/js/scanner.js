@@ -71,7 +71,7 @@ function getRandomSubset(arr, count) {
 
 const ADMIN_EMAIL = 'camilotapia75@gmail.com';
 
-// ── Scanner core ──────────────────────────────────────────────────────────────
+// ── Scanner core ────────────────────────────────────────────────
 
 async function _runScanCore(tickers, ui, quickFn, recordFn, renderFn) {
   const btn       = document.getElementById(ui.btnId);
@@ -166,7 +166,7 @@ function renderScanCard(r) {
   </div>`;
 }
 
-// ── HOF persistence ───────────────────────────────────────────────────────────
+// ── HOF persistence ───────────────────────────────────────────────
 
 const HOF_KEY    = 'signalscan_hof';
 let _hofRenderGen = 0;
@@ -207,7 +207,7 @@ async function renderHoF() {
   if (!section) return;
 
   const isAdmin = typeof currentUser !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
-  const gen = ++_hofRenderGen;
+  const gen = ++_hofRenderGen; // stale-render guard
 
   try {
     const sb = getSupabase();
@@ -217,7 +217,7 @@ async function renderHoF() {
       .order('detected_at', { ascending: false })
       .limit(5000);
 
-    if (gen !== _hofRenderGen) return;
+    if (gen !== _hofRenderGen) return; // a newer renderHoF() started — abort
     if (error) throw error;
 
     const subtitleEl = document.getElementById('hofSubtitle');
@@ -246,9 +246,11 @@ async function renderHoF() {
       const watchlistCount = records.filter(r => r.source === 'watchlist').length;
       const scannerTagged  = records.filter(r => r.source === 'scanner').length;
       const legacyCount    = records.filter(r => !r.source).length;
+      const uniqueCount    = new Set(records.map(r => r.ticker)).size;
       if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HOF — ADMIN';
-      if (subtitleEl) subtitleEl.textContent = `${scannerTagged} SCANNER · ${watchlistCount} WATCHLIST · ${legacyCount} LEGACY`;
+      if (subtitleEl) subtitleEl.textContent = `${uniqueCount} TICKERS · ${scannerTagged} SCANNER · ${watchlistCount} WATCHLIST · ${legacyCount} LEGACY`;
       if (btn) btn.style.display = 'block';
+      _injectAdminHofAddForm();
       _renderHofAdminTable(records);
     } else {
       _hofAdminRecords = [];
@@ -272,6 +274,7 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const allUnique = [...byTicker.values()];
+  // Show top 50 by conviction initially (placeholder before prices load)
   const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
@@ -292,8 +295,10 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
     }).join('');
   };
 
+  // Show tickers immediately so the table is never blank
   renderRows(initialView.map(r => ({ ...r, pct: null })));
 
+  // Fetch prices for ALL unique tickers so low-conviction high-gainers aren't excluded
   try {
     const symbols  = allUnique.map(r => r.ticker).join(',');
     const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
@@ -307,12 +312,14 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
       if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
     }
 
+    // Compute % gain for ALL records (not just most-recent per ticker)
     const withPct = records.map(r => {
       const cur = prices[r.ticker];
       if (!cur) return null;
       return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
     }).filter(Boolean);
 
+    // Per ticker, keep only the entry with the best (highest) % gain
     const bestByTicker = new Map();
     for (const r of withPct) {
       const existing = bestByTicker.get(r.ticker);
@@ -330,14 +337,17 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
 }
 
 function _adminSrcBadge(source) {
-  if (source === 'watchlist') return '<span style="font-size:9px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>';
-  if (source === 'scanner')   return '<span style="font-size:9px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>';
-  return '<span style="font-size:9px;color:var(--muted);letter-spacing:0.5px;">LEGACY</span>';
+  if (source === 'watchlist') return '<br><span style="font-size:8px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>';
+  if (source === 'scanner')   return '<br><span style="font-size:8px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>';
+  if (source === 'manual')    return '<br><span style="font-size:8px;color:var(--gold);letter-spacing:0.5px;">MANUAL</span>';
+  return '<br><span style="font-size:8px;color:var(--muted);letter-spacing:0.5px;">LEGACY</span>';
 }
 
 function _renderHofAdminTable(records, tbodyId = 'hofTbody') {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
+  // Deduplicate: one per ticker, keep OLDEST (first detection) — records sorted DESC
+  // so always overwriting means the last write wins = oldest record per ticker
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
@@ -345,13 +355,78 @@ function _renderHofAdminTable(records, tbodyId = 'hofTbody') {
     const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
     const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
     return `<tr>
-      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}${_adminSrcBadge(s.source)}</td>
       <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
       <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
       <td style="padding:7px 8px;color:var(--muted);">—</td>
     </tr>`;
   }).join('');
+}
+
+function _injectAdminHofAddForm() {
+  const section = document.getElementById('hofSection');
+  if (!section || document.getElementById('adminHofAddForm')) return;
+  const subtitleEl = document.getElementById('hofSubtitle');
+  const formHTML = `
+  <div id="adminHofAddForm" style="background:rgba(255,204,68,0.05);border:1px solid rgba(255,204,68,0.2);padding:14px 18px;margin-bottom:18px;">
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;color:var(--gold);margin-bottom:10px;">⚡ ADMIN — ADD SIGNAL TO HOF</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">TICKER</div>
+        <input id="aHofTicker" type="text" placeholder="DDOG" maxlength="12" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;width:80px;outline:none;text-transform:uppercase;"></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">SIGNAL PRICE</div>
+        <input id="aHofPrice" type="number" placeholder="123.45" step="0.01" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;width:100px;outline:none;"></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">CONVICTION %</div>
+        <input id="aHofConviction" type="number" placeholder="75" min="0" max="100" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;width:70px;outline:none;"></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">DATE DETECTED</div>
+        <input id="aHofDate" type="date" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;outline:none;"></div>
+      <div><div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:3px;">SOURCE</div>
+        <select id="aHofSource" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:5px 8px;outline:none;">
+          <option value="watchlist">WATCHLIST</option>
+          <option value="scanner">SCANNER</option>
+          <option value="manual">MANUAL</option>
+        </select></div>
+      <button onclick="hofAdminInsert()" style="background:var(--gold);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">+ ADD</button>
+    </div>
+    <div id="aHofMsg" style="font-size:10px;margin-top:8px;letter-spacing:0.5px;min-height:14px;"></div>
+  </div>`;
+  if (subtitleEl) subtitleEl.insertAdjacentHTML('afterend', formHTML);
+}
+
+async function hofAdminInsert() {
+  const ticker     = (document.getElementById('aHofTicker')?.value || '').trim().toUpperCase();
+  const price      = parseFloat(document.getElementById('aHofPrice')?.value);
+  const conviction = parseInt(document.getElementById('aHofConviction')?.value, 10);
+  const dateStr    = document.getElementById('aHofDate')?.value;
+  const source     = document.getElementById('aHofSource')?.value || 'manual';
+  const msgEl      = document.getElementById('aHofMsg');
+  const setMsg     = (txt, ok) => { if (msgEl) { msgEl.style.color = ok ? 'var(--accent)' : 'var(--accent2)'; msgEl.textContent = txt; } };
+
+  if (!ticker || !/^[A-Z0-9.\-]{1,12}$/.test(ticker)) { setMsg('Invalid ticker.', false); return; }
+  if (isNaN(price) || price <= 0) { setMsg('Invalid price.', false); return; }
+  if (isNaN(conviction) || conviction < 0 || conviction > 100) { setMsg('Invalid conviction (0–100).', false); return; }
+
+  setMsg('Inserting…', true);
+  try {
+    const session = (await getSupabase().auth.getSession()).data?.session;
+    const token   = session?.access_token;
+    if (!token) { setMsg('Not authenticated.', false); return; }
+
+    const body = { ticker, price, conviction, source };
+    if (dateStr) body.detectedAt = dateStr;
+
+    const res  = await fetch('/api/hof/admin-insert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); setMsg(`Error: ${e.error || res.status}`, false); return; }
+    setMsg(`✓ ${ticker} added to HOF.`, true);
+    ['aHofTicker','aHofPrice','aHofConviction','aHofDate'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    setTimeout(() => renderHoF(), 800);
+  } catch (e) {
+    setMsg(`Error: ${e.message}`, false);
+  }
 }
 
 function _renderHofLegacy() {
@@ -397,6 +472,8 @@ async function loadHofReturns() {
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
   if (_hofAdminRecords.length) {
+    // Deduplicate to one per ticker (same as render), then fetch returns
+    // Keep oldest (first detection) per ticker — overwrite gives oldest since records sorted DESC
     const byTicker = new Map();
     for (const r of _hofAdminRecords) byTicker.set(r.ticker, r);
     const toLoad = [...byTicker.values()];
@@ -417,7 +494,7 @@ async function loadHofReturns() {
         const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
         const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
         return `<tr>
-          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}${_adminSrcBadge(s.source)}</td>
           <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
           <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
           <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
@@ -426,11 +503,13 @@ async function loadHofReturns() {
       }).join('');
     }
   } else {
+    // localStorage legacy path — fetch prices, sort by % gain, re-render
     try {
       const raw = localStorage.getItem(HOF_KEY);
       if (!raw) { if (btn) { btn.disabled = false; btn.textContent = 'LOAD RETURNS'; } return; }
       const store = JSON.parse(raw);
       const pool  = store.signals.slice().reverse().slice(0, 50);
+
       const withPct = await Promise.all(pool.map(async s => {
         try {
           const data = await fetchStockData(s.ticker, '1d|5d');
@@ -439,6 +518,7 @@ async function loadHofReturns() {
           return { ...s, pct: (cur - s.price) / s.price * 100 };
         } catch (_) { return null; }
       }));
+
       const top20 = withPct.filter(Boolean).sort((a, b) => b.pct - a.pct).slice(0, 20);
       const tbody = document.getElementById('hofTbody');
       if (tbody && top20.length) {
@@ -463,7 +543,7 @@ async function loadHofReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-// ── Combined HoF (Golden Bull Scanner + Watchlist) ────────────────────────────
+// ── Combined HoF (Golden Bull Scanner + Watchlist) ────────────────────
 
 async function renderAllHoF() {
   const section = document.getElementById('allHofSection');
@@ -512,6 +592,7 @@ async function loadAllHofReturns() {
   const btn = document.getElementById('allHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
+  // Keep oldest (first detection) per ticker
   const byTicker = new Map();
   for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
   const results = await Promise.all([...byTicker.values()].map(async s => {
@@ -544,7 +625,7 @@ async function loadAllHofReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-// ── Bull Pen HOF ──────────────────────────────────────────────────────────────
+// ── Bull Pen HOF ───────────────────────────────────────────────
 
 const BP_HOF_KEY = 'signalscan_bullpen_hof';
 
@@ -592,6 +673,7 @@ async function renderBullPenHoF() {
     }
   } catch (e) {
     console.error('[BP HOF] render error:', e.message);
+    // localStorage fallback
     try {
       const raw = localStorage.getItem(BP_HOF_KEY);
       if (!raw) return;
@@ -621,9 +703,11 @@ async function _renderBullPenPublicTable(records, gen) {
   const tbody = document.getElementById('bpHofTbody');
   if (!tbody) return;
 
+  // One per ticker — keep OLDEST (first detection price), records sorted DESC
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const allUnique = [...byTicker.values()];
+  // Show top 50 by conviction initially
   const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
@@ -679,6 +763,7 @@ async function _renderBullPenPublicTable(records, gen) {
 function _renderBullPenAdminTable(records) {
   const tbody = document.getElementById('bpHofTbody');
   if (!tbody) return;
+  // Deduplicate: one per ticker, keep OLDEST — records sorted DESC so last write = oldest
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
@@ -701,6 +786,7 @@ async function loadBullPenReturns() {
   const btn = document.getElementById('bpHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
+  // Deduplicate to one per ticker (oldest first detection), then fetch returns
   const byTicker = new Map();
   for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
   const toLoad = [...byTicker.values()];
@@ -736,7 +822,7 @@ async function loadBullPenReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-// ── Analysis ──────────────────────────────────────────────────────────────────
+// ── Analysis ────────────────────────────────────────────────────
 
 const ANALYSIS_CACHE = new Map();
 
@@ -856,18 +942,27 @@ async function quickAnalyzeForScan(ticker) {
 
   const signals = [];
 
+  // Trend
   if (ema9 > ema21)                                        signals.push('EMA9>EMA21 bullish cross');
   if (ema50 && price > ema50)                              signals.push('Price above EMA50');
   if (ema9 > ema21 && ema50 && ema21 > ema50)             signals.push('Full EMA stack bullish');
+
+  // Momentum
   if (rsi > 55 && rsi < 75)                               signals.push(`RSI momentum zone (${rsi.toFixed(0)})`);
   if (rsi > 50 && macd && macd > 0)                       signals.push('RSI>50 + MACD positive');
+
+  // Mean reversion
   if (bb && price < bb.mean * 1.01 && price > bb.lower)   signals.push('Near BB mean — mean reversion');
   if (bb && price > bb.mean && price < bb.upper * 0.98)   signals.push('Above BB mean, room to upper');
+
+  // Volume
   if (vwap && price > vwap)                               signals.push('Price above VWAP');
   if (obv.length >= 5) {
     const obvRecent = obv.slice(-5);
     if (obvRecent[4] > obvRecent[0])                      signals.push('OBV trending up (buying pressure)');
   }
+
+  // ATR / volatility
   if (atr && price > 0 && atr / price < 0.025)            signals.push('Low ATR — tight volatility');
 
   const conviction = Math.min(100, Math.round(signals.length / 8 * 100));
@@ -921,7 +1016,7 @@ async function quickAnalyzeForScanV2(ticker, spyReturn) {
   return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
 }
 
-// ── Ticker analysis (full chart) ──────────────────────────────────────────────
+// ── Ticker analysis (full chart) ────────────────────────────────────────────
 
 let _currentTicker = null;
 let _chartInstance = null;
@@ -1032,6 +1127,7 @@ async function runAnalysis() {
       </div>` : '<div style="color:var(--muted);font-size:11px;">No strong signals detected.</div>'}
     `;
 
+    // Draw chart
     const ctx = document.getElementById('priceChart')?.getContext('2d');
     if (ctx && closes.length > 1) {
       if (_chartInstance) { _chartInstance.destroy(); _chartInstance = null; }
@@ -1077,7 +1173,7 @@ async function runAnalysis() {
   }
 }
 
-// ── Bull Pen scanner (V2) ─────────────────────────────────────────────────────
+// ── Bull Pen scanner (V2) ───────────────────────────────────────────────
 
 let _bpScanRunning = false;
 let _spyReturn     = null;
@@ -1114,6 +1210,7 @@ async function hofRecordBullPen(bulls) {
     });
   } catch (_) {}
 
+  // localStorage fallback
   try {
     const raw   = localStorage.getItem(BP_HOF_KEY);
     const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
@@ -1127,7 +1224,7 @@ async function hofRecordBullPen(bulls) {
   } catch (_) {}
 }
 
-// ── Watchlist HOF ticker ───────────────────────────────────────────────────────
+// ── Watchlist HOF ticker ───────────────────────────────────────────────
 
 function updateBullPenTicker() {
   const tickerEl = document.getElementById('bpHofTicker');
@@ -1159,7 +1256,7 @@ function updateGoldenBullTicker() {
   } catch (_) {}
 }
 
-// ── How it works ───────────────────────────────────────────────────────────────
+// ── How it works ──────────────────────────────────────────────────
 
 function toggleHowItWorks() {
   const el = document.getElementById('howItWorks');
@@ -1167,7 +1264,7 @@ function toggleHowItWorks() {
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-// ── Theme toggle ───────────────────────────────────────────────────────────────
+// ── Theme toggle ─────────────────────────────────────────────────
 
 function toggleTheme() {
   const isDark = document.body.classList.toggle('light-mode');
