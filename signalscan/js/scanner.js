@@ -207,7 +207,7 @@ async function renderHoF() {
   if (!section) return;
 
   const isAdmin = typeof currentUser !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
-  const gen = ++_hofRenderGen; // stale-render guard
+  const gen = ++_hofRenderGen;
 
   try {
     const sb = getSupabase();
@@ -215,9 +215,9 @@ async function renderHoF() {
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction,source')
       .order('detected_at', { ascending: false })
-      .limit(1000);
+      .limit(5000);
 
-    if (gen !== _hofRenderGen) return; // a newer renderHoF() started — abort
+    if (gen !== _hofRenderGen) return;
     if (error) throw error;
 
     const subtitleEl = document.getElementById('hofSubtitle');
@@ -272,7 +272,6 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const allUnique = [...byTicker.values()];
-  // Show top 50 by conviction initially (placeholder before prices load)
   const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
@@ -293,10 +292,8 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
     }).join('');
   };
 
-  // Show tickers immediately so the table is never blank
   renderRows(initialView.map(r => ({ ...r, pct: null })));
 
-  // Fetch prices for ALL unique tickers so low-conviction high-gainers aren't excluded
   try {
     const symbols  = allUnique.map(r => r.ticker).join(',');
     const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
@@ -310,14 +307,12 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
       if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
     }
 
-    // Compute % gain for ALL records (not just most-recent per ticker)
     const withPct = records.map(r => {
       const cur = prices[r.ticker];
       if (!cur) return null;
       return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
     }).filter(Boolean);
 
-    // Per ticker, keep only the entry with the best (highest) % gain
     const bestByTicker = new Map();
     for (const r of withPct) {
       const existing = bestByTicker.get(r.ticker);
@@ -343,8 +338,6 @@ function _adminSrcBadge(source) {
 function _renderHofAdminTable(records, tbodyId = 'hofTbody') {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
-  // Deduplicate: one per ticker, keep OLDEST (first detection) — records sorted DESC
-  // so always overwriting means the last write wins = oldest record per ticker
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
@@ -404,8 +397,6 @@ async function loadHofReturns() {
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
   if (_hofAdminRecords.length) {
-    // Deduplicate to one per ticker (same as render), then fetch returns
-    // Keep oldest (first detection) per ticker — overwrite gives oldest since records sorted DESC
     const byTicker = new Map();
     for (const r of _hofAdminRecords) byTicker.set(r.ticker, r);
     const toLoad = [...byTicker.values()];
@@ -435,13 +426,11 @@ async function loadHofReturns() {
       }).join('');
     }
   } else {
-    // localStorage legacy path — fetch prices, sort by % gain, re-render
     try {
       const raw = localStorage.getItem(HOF_KEY);
       if (!raw) { if (btn) { btn.disabled = false; btn.textContent = 'LOAD RETURNS'; } return; }
       const store = JSON.parse(raw);
       const pool  = store.signals.slice().reverse().slice(0, 50);
-
       const withPct = await Promise.all(pool.map(async s => {
         try {
           const data = await fetchStockData(s.ticker, '1d|5d');
@@ -450,7 +439,6 @@ async function loadHofReturns() {
           return { ...s, pct: (cur - s.price) / s.price * 100 };
         } catch (_) { return null; }
       }));
-
       const top20 = withPct.filter(Boolean).sort((a, b) => b.pct - a.pct).slice(0, 20);
       const tbody = document.getElementById('hofTbody');
       if (tbody && top20.length) {
@@ -490,7 +478,7 @@ async function renderAllHoF() {
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction,source')
       .order('detected_at', { ascending: false })
-      .limit(1000);
+      .limit(5000);
 
     if (gen !== _allRenderGen) return;
     if (error) throw error;
@@ -524,7 +512,6 @@ async function loadAllHofReturns() {
   const btn = document.getElementById('allHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  // Keep oldest (first detection) per ticker
   const byTicker = new Map();
   for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
   const results = await Promise.all([...byTicker.values()].map(async s => {
@@ -557,7 +544,7 @@ async function loadAllHofReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-// ── Bull Pen HOF ─────────────────────────────────────────────────────────────
+// ── Bull Pen HOF ──────────────────────────────────────────────────────────────
 
 const BP_HOF_KEY = 'signalscan_bullpen_hof';
 
@@ -605,7 +592,6 @@ async function renderBullPenHoF() {
     }
   } catch (e) {
     console.error('[BP HOF] render error:', e.message);
-    // localStorage fallback
     try {
       const raw = localStorage.getItem(BP_HOF_KEY);
       if (!raw) return;
@@ -635,11 +621,9 @@ async function _renderBullPenPublicTable(records, gen) {
   const tbody = document.getElementById('bpHofTbody');
   if (!tbody) return;
 
-  // One per ticker — keep OLDEST (first detection price), records sorted DESC
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const allUnique = [...byTicker.values()];
-  // Show top 50 by conviction initially
   const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
@@ -695,7 +679,6 @@ async function _renderBullPenPublicTable(records, gen) {
 function _renderBullPenAdminTable(records) {
   const tbody = document.getElementById('bpHofTbody');
   if (!tbody) return;
-  // Deduplicate: one per ticker, keep OLDEST — records sorted DESC so last write = oldest
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
@@ -718,7 +701,6 @@ async function loadBullPenReturns() {
   const btn = document.getElementById('bpHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  // Deduplicate to one per ticker (oldest first detection), then fetch returns
   const byTicker = new Map();
   for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
   const toLoad = [...byTicker.values()];
@@ -874,27 +856,18 @@ async function quickAnalyzeForScan(ticker) {
 
   const signals = [];
 
-  // Trend
   if (ema9 > ema21)                                        signals.push('EMA9>EMA21 bullish cross');
   if (ema50 && price > ema50)                              signals.push('Price above EMA50');
   if (ema9 > ema21 && ema50 && ema21 > ema50)             signals.push('Full EMA stack bullish');
-
-  // Momentum
   if (rsi > 55 && rsi < 75)                               signals.push(`RSI momentum zone (${rsi.toFixed(0)})`);
   if (rsi > 50 && macd && macd > 0)                       signals.push('RSI>50 + MACD positive');
-
-  // Mean reversion
   if (bb && price < bb.mean * 1.01 && price > bb.lower)   signals.push('Near BB mean — mean reversion');
   if (bb && price > bb.mean && price < bb.upper * 0.98)   signals.push('Above BB mean, room to upper');
-
-  // Volume
   if (vwap && price > vwap)                               signals.push('Price above VWAP');
   if (obv.length >= 5) {
     const obvRecent = obv.slice(-5);
     if (obvRecent[4] > obvRecent[0])                      signals.push('OBV trending up (buying pressure)');
   }
-
-  // ATR / volatility
   if (atr && price > 0 && atr / price < 0.025)            signals.push('Low ATR — tight volatility');
 
   const conviction = Math.min(100, Math.round(signals.length / 8 * 100));
@@ -1059,7 +1032,6 @@ async function runAnalysis() {
       </div>` : '<div style="color:var(--muted);font-size:11px;">No strong signals detected.</div>'}
     `;
 
-    // Draw chart
     const ctx = document.getElementById('priceChart')?.getContext('2d');
     if (ctx && closes.length > 1) {
       if (_chartInstance) { _chartInstance.destroy(); _chartInstance = null; }
@@ -1142,7 +1114,6 @@ async function hofRecordBullPen(bulls) {
     });
   } catch (_) {}
 
-  // localStorage fallback
   try {
     const raw   = localStorage.getItem(BP_HOF_KEY);
     const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
@@ -1156,7 +1127,7 @@ async function hofRecordBullPen(bulls) {
   } catch (_) {}
 }
 
-// ── Watchlist HOF ticker ─────────────────────────────────────────────────────
+// ── Watchlist HOF ticker ───────────────────────────────────────────────────────
 
 function updateBullPenTicker() {
   const tickerEl = document.getElementById('bpHofTicker');
@@ -1188,7 +1159,7 @@ function updateGoldenBullTicker() {
   } catch (_) {}
 }
 
-// ── How it works ─────────────────────────────────────────────────────────────
+// ── How it works ───────────────────────────────────────────────────────────────
 
 function toggleHowItWorks() {
   const el = document.getElementById('howItWorks');
@@ -1196,7 +1167,7 @@ function toggleHowItWorks() {
   el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
-// ── Theme toggle ─────────────────────────────────────────────────────────────
+// ── Theme toggle ───────────────────────────────────────────────────────────────
 
 function toggleTheme() {
   const isDark = document.body.classList.toggle('light-mode');
