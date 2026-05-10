@@ -404,9 +404,8 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
 
 function _adminSrcBadge(source) {
   if (source === 'watchlist') return '<br><span style="font-size:8px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>';
-  if (source === 'scanner')   return '<br><span style="font-size:8px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>';
   if (source === 'manual')    return '<br><span style="font-size:8px;color:var(--gold);letter-spacing:0.5px;">MANUAL</span>';
-  return '<br><span style="font-size:8px;color:var(--muted);letter-spacing:0.5px;">LEGACY</span>';
+  return ''; // scanner (default) and legacy show no badge
 }
 
 function _injectAdminHofAddForm() {
@@ -432,6 +431,10 @@ function _injectAdminHofAddForm() {
           <option value="manual">MANUAL</option>
         </select></div>
       <button onclick="hofAdminInsert()" style="background:var(--gold);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">+ ADD</button>
+    </div>
+    <div style="margin-top:10px;">
+      <button onclick="adminReScanToHof()" style="background:rgba(255,204,68,0.12);border:1px solid rgba(255,204,68,0.4);color:var(--gold);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">🔁 RESCAN ALL TICKERS → HOF</button>
+      <span style="font-size:9px;color:var(--muted);margin-left:10px;">Detects all current golden bulls and force-adds them (bypasses 7-day dedup)</span>
     </div>
     <div id="aHofMsg" style="font-size:10px;margin-top:8px;letter-spacing:0.5px;min-height:14px;"></div>
   </div>`;
@@ -468,6 +471,56 @@ async function hofAdminInsert() {
     if (!res.ok) { const e = await res.json().catch(() => ({})); setMsg(`Error: ${e.error || res.status}`, false); return; }
     setMsg(`✓ ${ticker} added to HOF.`, true);
     ['aHofTicker','aHofPrice','aHofConviction','aHofDate'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    setTimeout(() => renderHoF(), 800);
+  } catch (e) {
+    setMsg(`Error: ${e.message}`, false);
+  }
+}
+
+async function adminReScanToHof() {
+  const msgEl  = document.getElementById('aHofMsg');
+  const setMsg = (txt, ok) => { if (msgEl) { msgEl.style.color = ok ? 'var(--accent)' : 'var(--accent2)'; msgEl.textContent = txt; } };
+
+  setMsg('⏳ Authenticating…', true);
+  const session = (await getSupabase().auth.getSession()).data?.session;
+  const token   = session?.access_token;
+  if (!token) { setMsg('Not authenticated.', false); return; }
+
+  const daily   = getDailyRotation(ROTATION_POOL, 20);
+  const tickers = [...new Set([...SCAN_UNIVERSE_CORE, ...daily])];
+  const bulls   = [];
+  let processed = 0;
+  let idx = 0;
+
+  setMsg(`⏳ Scanning 0 / ${tickers.length}…`, true);
+
+  async function worker() {
+    while (idx < tickers.length) {
+      const ticker = tickers[idx++];
+      try {
+        const r = await quickAnalyzeForScan(ticker);
+        if (r?.isGoldenBull) bulls.push({ ticker: r.ticker, price: r.price, conviction: r.conviction, source: 'scanner' });
+      } catch (_) {}
+      processed++;
+      if (processed % 5 === 0 || processed === tickers.length)
+        setMsg(`⏳ Scanning ${processed} / ${tickers.length}… ${bulls.length} found so far`, true);
+    }
+  }
+  await Promise.all(Array.from({ length: 3 }, worker));
+
+  if (!bulls.length) { setMsg('✓ Scan complete — no golden bulls detected right now.', true); return; }
+
+  setMsg(`⏳ Force-inserting ${bulls.length} tickers into HOF…`, true);
+  try {
+    const res = await fetch('/api/hof/admin-batch-insert', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ signals: bulls }),
+    });
+    if (!res.ok) { const e = await res.json().catch(() => ({})); setMsg(`Error: ${e.error || res.status}`, false); return; }
+    const data = await res.json();
+    const names = (data.tickers || bulls.map(b => b.ticker)).slice(0, 10).join(', ');
+    setMsg(`✓ Added ${data.inserted} golden bulls to HOF: ${names}${data.inserted > 10 ? '…' : ''}`, true);
     setTimeout(() => renderHoF(), 800);
   } catch (e) {
     setMsg(`Error: ${e.message}`, false);
