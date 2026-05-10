@@ -53,181 +53,90 @@ const ROTATION_POOL = [
   'MCO','ROP','IDXX','ALGN','DXCM','OXY','FANG','MPC','CTRA','VST',
 ];
 
-function getDailyPicks(pool, count) {
-  const d = new Date();
-  let seed = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
-  const arr = [...pool];
+function getDailyRotation(pool, count) {
+  const seed = Math.floor(Date.now() / 86400000);
+  const arr  = pool.slice();
+  let s = seed;
   for (let i = arr.length - 1; i > 0; i--) {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    const j = seed % (i + 1);
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr.slice(0, count);
 }
 
-const SCAN_UNIVERSE = [...SCAN_UNIVERSE_CORE, ...getDailyPicks(ROTATION_POOL, 20)];
-
-function getScanTimeframe() {
-  const sel = document.getElementById('scanTimeframe');
-  return sel ? sel.value : '1wk|1y';
+function getRandomSubset(arr, count) {
+  return arr.slice(0, count);
 }
 
-async function quickAnalyzeForScan(ticker) {
-  try {
-    const data = await fetchStockData(ticker, getScanTimeframe());
-    if (!data || !data.closes) return { _networkFail: true };
-    const closes = data.closes.filter(Boolean);
-    if (closes.length < 45) return null;
-    const indData = computeIndicators(data);
-    if (!indData) return null;
+const ADMIN_EMAIL = 'camilotapia75@gmail.com';
 
-    // Price floor: sub-$3 non-crypto stocks are dead-company territory
-    if (!ticker.includes('-USD') && indData.lastClose < 3) return null;
+// ── Scanner core ──────────────────────────────────────────────────────────────
 
-    const highs = data.highs.filter(Boolean);
-    const lows = data.lows.filter(Boolean);
+async function _runScanCore(tickers, ui, quickFn, recordFn, renderFn) {
+  const btn       = document.getElementById(ui.btnId);
+  const progressEl = document.getElementById(ui.progressId);
+  const gridEl    = document.getElementById(ui.gridId);
+  const emptyEl   = document.getElementById(ui.emptyId);
+  const headerEl  = document.getElementById(ui.headerId);
+  const foundMsgEl = document.getElementById(ui.foundMsgId);
+  const statusEl  = document.getElementById(ui.statusId);
+  const countEl   = document.getElementById(ui.countId);
+  const barEl     = document.getElementById(ui.barId);
 
-    // Structural decline filter: reject only when BOTH signals confirm a dead company.
-    // Near yearly lows alone can mean a healthy stock in a market correction.
-    // Steeply declining EMA50 alone can happen during a broad selloff.
-    // Together they specifically identify CHPT-style structural collapse.
-    const yearHigh = Math.max(...highs);
-    const yearLow = Math.min(...lows);
-    const rangeSpan = yearHigh - yearLow;
-    const nearYearlyLow = rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20;
-    const e50 = calcEMA(closes, 50);
-    const ema50Collapsing = e50.length >= 9 && (e50[e50.length - 1] - e50[e50.length - 9]) / e50[e50.length - 9] < -0.08;
-    if (nearYearlyLow && ema50Collapsing) return null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ SCANNING...'; }
+  if (progressEl) progressEl.style.display = 'block';
+  if (gridEl)  gridEl.innerHTML  = '';
+  if (emptyEl) emptyEl.style.display = 'none';
+  if (headerEl) headerEl.style.display = 'none';
 
-    const sr = findSupportResistance(highs, lows, closes);
-    const pa = analyzePriceAction(data);
-    const rev = generateAnalysis(ticker, indData, sr, pa);
-    const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
-    const isGoldenBull = rev.bias === 'BULLISH' && cont.bias === 'BULLISH';
-    console.log(`[SCANNER] ${ticker}: rev=${rev.bias}(${rev.score.toFixed(2)}) cont=${cont.bias}(${cont.score.toFixed(2)}) => ${isGoldenBull ? '🐂 GOLDEN BULL' : 'skip'}`);
-    const avgScore = (rev.score + cont.score) / 2;
-    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (avgScore - 0.2) / 0.8 * 50)));
-    const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
-    const spark = closes.slice(-30);
-    const nearestRes = sr.resistance.filter(r => r.price > indData.lastClose)[0];
-    const estimatedUpside = nearestRes
-      ? (nearestRes.price - indData.lastClose) / indData.lastClose * 100
-      : Math.max(0, (yearHigh - indData.lastClose) / indData.lastClose * 100);
-    return { ticker, price: indData.lastClose, isGoldenBull, conviction, topSignal, revScore: rev.score, contScore: cont.score, spark, estimatedUpside };
-  } catch (e) {
-    console.error(`[SCANNER] ${ticker}: failed —`, e.message);
-    return { _networkFail: true };
-  }
-}
+  const bulls  = [];
+  const total  = tickers.length;
+  let   done   = 0;
 
-function computeIndicators(data) {
-  try {
-    const closes = data.closes.filter(Boolean);
-    const highs = data.highs.filter(Boolean);
-    const lows = data.lows.filter(Boolean);
-    const volumes = data.volumes.filter(Boolean);
-    const rsi = calcRSI(closes, 14);
-    const macd = calcMACD(closes);
-    const bb = calcBollinger(closes, 20, 2);
-    const stoch = calcStochastic(highs, lows, closes, 14, 3);
-    const atr = calcATR(highs, lows, closes, 14);
-    const obv = calcOBV(closes, volumes);
-    const e20 = calcEMA(closes, 20);
-    const e50 = calcEMA(closes, 50);
-    const ema20 = e20[e20.length - 1];
-    const ema50 = e50[e50.length - 1];
-    const lastClose = closes[closes.length - 1];
-    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-    const volRatio = volumes[volumes.length - 1] / (avgVol || 1);
-    return { rsi, macd, bb, stoch, atr, obv, ema20, ema50, lastClose, volRatio };
-  } catch (e) {
-    console.error('[SCANNER] computeIndicators error:', e.message);
-    return null;
-  }
-}
+  const CONCURRENCY = 6;
+  let   idx         = 0;
 
-async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn) {
-  const { btnId, progressId, gridId, emptyId, headerId, foundMsgId, statusId, countId, barId, btnLabel } = ids;
-  const btn      = document.getElementById(btnId);
-  const progress = document.getElementById(progressId);
-  const grid     = document.getElementById(gridId);
-  const emptyMsg = document.getElementById(emptyId);
-  const header   = document.getElementById(headerId);
-
-  btn.disabled = true;
-  btn.textContent = '⏳ Scanning...';
-  progress.style.display = 'block';
-  if (emptyMsg) emptyMsg.style.display = 'none';
-  if (header)   header.style.display   = 'none';
-  grid.innerHTML = '';
-
-  const total    = tickers.length;
-  let done = 0, failed = 0;
-  const bulls    = [];
-  const fill     = document.getElementById(barId);
-  const countEl  = document.getElementById(countId);
-  const statusEl = document.getElementById(statusId);
-  const foundMsg = document.getElementById(foundMsgId);
-
-  if (countEl) countEl.textContent = `0 / ${total}`;
-  console.log(`[SCANNER] Starting scan of ${total} tickers using ${getScanTimeframe()}`);
-
-  for (let i = 0; i < total; i++) {
-    const ticker = tickers[i];
-    if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
-    const r = await (analyzeFn || quickAnalyzeForScan)(ticker);
-    done++;
-    if (fill)    fill.style.width          = `${Math.round(done / total * 100)}%`;
-    if (countEl) countEl.textContent       = `${done} / ${total}`;
-    if (r && r._networkFail) { failed++; }
-    else if (r && r.isGoldenBull) {
-      bulls.push(r);
-      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
-      grid.insertAdjacentHTML('beforeend', renderScanCard(r));
-    }
-    if (i < total - 1) await new Promise(res => setTimeout(res, 400));
-  }
-
-  console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
-  if (bulls.length > 0) {
-    try {
-      await (recordFn || hofRecord)(bulls);
-      await (renderFn || renderHoF)();
-    } catch (e) {
-      console.error('[SCANNER] post-scan record/render failed:', e.message);
-    }
-  }
-
-  const allFailed = failed > 0 && failed === done;
-  const mostFailed = failed > total * 0.7;
-
-  if (bulls.length === 0) {
-    if (emptyMsg) {
-      emptyMsg.style.display = 'block';
-      const msgEl = emptyMsg.querySelector('div:last-child');
-      if (msgEl) {
-        if (allFailed || mostFailed) {
-          msgEl.innerHTML = `<span style="color:#ff6b6b;">Network error — ${failed} tickers couldn't load.</span><br><span style="font-size:11px;color:var(--muted);">Check your connection and try again.</span>`;
-        } else {
-          msgEl.innerHTML = `No golden bull signals in current market conditions.${failed > 0 ? `<br><span style="font-size:11px;color:var(--muted);">${failed} ticker${failed !== 1 ? 's' : ''} couldn't load.</span>` : ''}`;
+  async function worker() {
+    while (idx < tickers.length) {
+      const ticker = tickers[idx++];
+      try {
+        const fn = quickFn || quickAnalyzeForScan;
+        const r  = await fn(ticker);
+        if (r?.isGoldenBull) {
+          bulls.push(r);
+          if (gridEl) gridEl.insertAdjacentHTML('beforeend', renderScanCard(r));
         }
-      }
+      } catch (_) {}
+      done++;
+      const pct = Math.round(done / total * 100);
+      if (countEl) countEl.textContent = `${done}/${total}`;
+      if (barEl)   barEl.style.width   = `${pct}%`;
+      if (statusEl) statusEl.textContent = ticker;
     }
-  } else {
-    if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`; header.style.display = 'block'; }
   }
 
-  if (foundMsg) foundMsg.textContent = (allFailed || mostFailed) ? `Network error — ${failed} of ${total} tickers failed to load` : failed > 0 ? `${failed} ticker${failed !== 1 ? 's' : ''} couldn't load (network)` : '';
-  progress.style.display = 'none';
-  btn.disabled  = false;
-  btn.textContent = `${btnLabel} (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ''})`;
+  await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+
+  if (progressEl) progressEl.style.display = 'none';
+  if (headerEl)  headerEl.style.display   = 'block';
+  if (foundMsgEl) foundMsgEl.textContent  = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`;
+  if (emptyEl)   emptyEl.style.display    = bulls.length ? 'none' : 'block';
+  if (btn) { btn.disabled = false; btn.textContent = ui.btnLabel; }
+
+  if (bulls.length) {
+    await (recordFn || hofRecord)(bulls);
+    if (renderFn) renderFn();
+  }
 }
 
 function runScanner() {
-  return _runScanCore(SCAN_UNIVERSE, {
-    btnId: 'scanBtn',         progressId: 'scanProgress',    gridId: 'scanResultsGrid',
-    emptyId: 'scanEmpty',     headerId: 'scanResultsHeader', foundMsgId: 'scanFoundMsg',
-    statusId: 'scanStatusText', countId: 'scanProgressCount', barId: 'scanProgressBar',
+  const daily   = getDailyRotation(ROTATION_POOL, 20);
+  const tickers = [...new Set([...SCAN_UNIVERSE_CORE, ...daily])];
+  return _runScanCore(tickers, {
+    btnId: 'scanBtn',              progressId: 'scanProgress',     gridId: 'scanGrid',
+    emptyId: 'scanEmpty',          headerId: 'scanHeader',          foundMsgId: 'scanFoundMsg',
+    statusId: 'scanStatusText',    countId: 'scanProgressCount',    barId: 'scanProgressBar',
     btnLabel: '🔍 SCAN AGAIN',
   });
 }
@@ -257,36 +166,28 @@ function renderScanCard(r) {
   </div>`;
 }
 
-function loadTickerAndAnalyze(ticker) {
-  const input = document.getElementById('tickerInput');
-  if (input) input.value = ticker.replace('-USD', '');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  setTimeout(() => runAnalysis(), 400);
-}
-
-// ── Hall of Fame ─────────────────────────────────────────────────────────────
+// ── HOF persistence ───────────────────────────────────────────────────────────
 
 const HOF_KEY    = 'signalscan_hof';
-const ADMIN_EMAIL = 'camilotapia75@gmail.com';
-let _hofAdminRecords  = [];
-let _hofRenderGen     = 0;
+let _hofRenderGen = 0;
+let _allRenderGen = 0;
+let _bpRenderGen  = 0;
 let _hofReturnLoading = false;
+let _allReturnLoading = false;
+let _bpReturnLoading  = false;
+let _hofAdminRecords    = [];
 let _allHofAdminRecords = [];
-let _allRenderGen       = 0;
-let _allReturnLoading   = false;
+let _bpAdminRecords     = [];
 
 async function hofRecord(bulls, source = 'scanner') {
-  // Persist to Supabase via server endpoint (cross-device)
   try {
     await fetch('/api/hof/record', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction, source })) }),
-      signal: AbortSignal.timeout(10000),
     });
-  } catch (e) {
-    console.error('[HOF] record failed:', e.message);
-  }
+  } catch (_) {}
+
   // localStorage fallback for offline resilience
   try {
     const raw   = localStorage.getItem(HOF_KEY);
@@ -313,7 +214,6 @@ async function renderHoF() {
     const { data: records, error } = await sb
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction,source')
-      .not('source', 'eq', 'watchlist')
       .order('detected_at', { ascending: false })
       .limit(1000);
 
@@ -327,8 +227,8 @@ async function renderHoF() {
     if (!records?.length) {
       if (isAdmin) {
         section.style.display = 'block';
-        if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL SCANNER HOF — ADMIN';
-        if (subtitleEl) subtitleEl.textContent = 'SCANNER ONLY — 0 SIGNALS';
+        if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HOF — ADMIN';
+        if (subtitleEl) subtitleEl.textContent = '0 SIGNALS';
         const tbody = document.getElementById('hofTbody');
         if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:14px 8px;color:var(--muted);font-size:10px;letter-spacing:1px;">No signals yet. Run a Golden Bull scan to populate.</td></tr>';
         if (btn) btn.style.display = 'none';
@@ -343,10 +243,11 @@ async function renderHoF() {
 
     if (isAdmin) {
       _hofAdminRecords = records;
-      const legacyCount  = records.filter(r => !r.source).length;
-      const scannerTagged = records.filter(r => r.source === 'scanner').length;
-      if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL SCANNER HOF — ADMIN';
-      if (subtitleEl) subtitleEl.textContent = `${scannerTagged} SCANNER · ${legacyCount} LEGACY (pre-migration)`;
+      const watchlistCount = records.filter(r => r.source === 'watchlist').length;
+      const scannerTagged  = records.filter(r => r.source === 'scanner').length;
+      const legacyCount    = records.filter(r => !r.source).length;
+      if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HOF — ADMIN';
+      if (subtitleEl) subtitleEl.textContent = `${scannerTagged} SCANNER · ${watchlistCount} WATCHLIST · ${legacyCount} LEGACY`;
       if (btn) btn.style.display = 'block';
       _renderHofAdminTable(records);
     } else {
@@ -599,20 +500,8 @@ async function renderAllHoF() {
     const watchlistCount = records.filter(r => r.source === 'watchlist').length;
     const scannerCount   = records.length - watchlistCount;
 
-    // Only show this section when there's actual watchlist data to differentiate it
-    if (!watchlistCount) { section.style.display = 'none'; return; }
-
-    if (!isAdmin) {
-      section.style.display = 'block';
-      const subtitleEl = document.getElementById('allHofSubtitle');
-      const uniqueCount = new Set(records.map(r => r.ticker)).size;
-      if (subtitleEl) subtitleEl.textContent = `ALL-TIME · ${uniqueCount} TICKERS`;
-      const btn = document.getElementById('allHofReturnBtn');
-      if (btn) btn.style.display = 'none';
-      _allHofAdminRecords = [];
-      await _renderHofPublicTable(records, gen, 'allHofTbody', 'allHofReturnBtn', () => _allRenderGen);
-      return;
-    }
+    // Combined HOF is admin-only (public HOF already includes all sources)
+    if (!isAdmin) { section.style.display = 'none'; return; }
 
     section.style.display = 'block';
     _allHofAdminRecords = records;
@@ -622,7 +511,7 @@ async function renderAllHoF() {
     if (titleEl)    titleEl.textContent    = '⚡ COMBINED HOF — SCANNER + WATCHLIST (ADMIN)';
     if (subtitleEl) subtitleEl.textContent = `${scannerCount} SCANNER · ${watchlistCount} WATCHLIST`;
     if (btn) btn.style.display = 'block';
-    _renderHofAdminTable(records, 'allHofTbody', 'allret');
+    _renderHofAdminTable(records, 'allHofTbody');
   } catch (e) {
     console.error('[ALL HOF] render error:', e.message);
     section.style.display = 'none';
@@ -668,210 +557,9 @@ async function loadAllHofReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-// ── Theme toggle ──────────────────────────────────────────────────────────────
-
-function toggleTheme() {
-  const isLight = document.body.classList.toggle('light-mode');
-  localStorage.setItem('signalscan_theme', isLight ? 'light' : 'dark');
-  const btn = document.getElementById('themeToggleBtn');
-  if (btn) btn.textContent = isLight ? '☀' : '🌙';
-}
-
-function initTheme() {
-  const saved = localStorage.getItem('signalscan_theme');
-  if (saved === 'light') {
-    document.body.classList.add('light-mode');
-    const btn = document.getElementById('themeToggleBtn');
-    if (btn) btn.textContent = '☀';
-  }
-}
-
-async function _migrateHofToSupabase() {
-  const MIG_KEY = 'signalscan_hof_migrated';
-  if (localStorage.getItem(MIG_KEY)) return;
-  try {
-    const raw = localStorage.getItem(HOF_KEY);
-    if (!raw) { localStorage.setItem(MIG_KEY, '1'); return; }
-    const store = JSON.parse(raw);
-    if (!store.signals?.length) { localStorage.setItem(MIG_KEY, '1'); return; }
-    const signals = store.signals.map(s => ({
-      ticker:      s.ticker,
-      price:       s.price,
-      conviction:  s.conviction,
-      detected_at: new Date(s.ts).toISOString(),
-    }));
-    console.log(`[HOF] Migrating ${signals.length} signals from localStorage to Supabase...`);
-    const r = await fetch('/api/hof/migrate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signals }),
-    });
-    if (r.ok) {
-      const d = await r.json();
-      console.log(`[HOF] Migration complete — ${d.migrated} signals uploaded.`);
-      localStorage.setItem(MIG_KEY, '1');
-    }
-  } catch (e) {
-    console.error('[HOF] Migration failed:', e.message);
-  }
-}
-
-// ── Bull Pen Scanner ──────────────────────────────────────────────────────────
+// ── Bull Pen HOF ─────────────────────────────────────────────────────────────
 
 const BP_HOF_KEY = 'signalscan_bullpen_hof';
-let _bpAdminRecords  = [];
-let _bpRenderGen     = 0;
-let _bpReturnLoading = false;
-let _activeScanTab   = 'original';
-
-function switchScanTab(tab) {
-  _activeScanTab = tab;
-  const isOrig = tab === 'original';
-
-  document.getElementById('scanPanelOriginal').style.display = isOrig ? '' : 'none';
-  document.getElementById('scanPanelBullpen').style.display  = isOrig ? 'none' : '';
-  document.getElementById('scanBtn').style.display   = isOrig ? '' : 'none';
-  document.getElementById('bpScanBtn').style.display = isOrig ? 'none' : '';
-
-  const origTab = document.getElementById('scanTabOriginal');
-  const bpTab   = document.getElementById('scanTabBullpen');
-  if (origTab) {
-    origTab.style.background = isOrig ? 'var(--gold)' : 'transparent';
-    origTab.style.color      = isOrig ? '#000' : 'var(--muted)';
-  }
-  if (bpTab) {
-    bpTab.style.background = isOrig ? 'transparent' : 'rgba(255,140,80,0.18)';
-    bpTab.style.color      = isOrig ? 'var(--muted)' : '#ff9055';
-  }
-}
-
-async function quickAnalyzeForScanV2(ticker, spyReturn) {
-  try {
-    const data = await fetchStockData(ticker, getScanTimeframe());
-    if (!data || !data.closes) return { _networkFail: true };
-    const closes = data.closes.filter(Boolean);
-    if (closes.length < 45) return null;
-    const indData = computeIndicators(data);
-    if (!indData) return null;
-
-    if (!ticker.includes('-USD') && indData.lastClose < 3) return null;
-
-    const highs   = data.highs.filter(Boolean);
-    const lows    = data.lows.filter(Boolean);
-
-    const yearHigh  = Math.max(...highs);
-    const yearLow   = Math.min(...lows);
-    const rangeSpan = yearHigh - yearLow;
-    const nearYearlyLow     = rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20;
-    const e50               = calcEMA(closes, 50);
-    const ema50Collapsing   = e50.length >= 9 && (e50[e50.length-1] - e50[e50.length-9]) / e50[e50.length-9] < -0.08;
-    if (nearYearlyLow && ema50Collapsing) return null;
-
-    const sr  = findSupportResistance(highs, lows, closes);
-    const pa  = analyzePriceAction(data);
-    const rev  = generateAnalysis(ticker, indData, sr, pa);
-    const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
-
-    let revScore  = rev.score;
-    let contScore = cont.score;
-
-    const { volRatio, lastClose, ema20, atr } = indData;
-
-    // 1. Volume surge — pre-pump anomaly detection
-    if (volRatio > 2.5) {
-      revScore  = Math.min(1, revScore  + 0.30);
-      contScore = Math.min(1, contScore + 0.30);
-    } else if (volRatio > 1.8) {
-      revScore  = Math.min(1, revScore  + 0.15);
-      contScore = Math.min(1, contScore + 0.15);
-    }
-
-    // 2. Near 52-week high with elevated volume = breakout momentum (inverted from V1 penalty)
-    const near52High = (yearHigh - lastClose) / yearHigh < 0.08;
-    if (near52High && volRatio > 1.2) {
-      revScore  = Math.min(1, revScore  + 0.25);
-      contScore = Math.min(1, contScore + 0.20);
-    }
-
-    // 3. Bollinger squeeze breakout — short-term ATR expanding vs long-term ATR
-    const atrShort = calcATR(highs, lows, closes, 5);
-    if (atrShort > atr * 1.30 && lastClose > ema20) {
-      contScore = Math.min(1, contScore + 0.20);
-    }
-
-    // 4. Relative strength vs SPY — 20-day return comparison
-    if (spyReturn !== null && closes.length >= 21) {
-      const stockReturn = (lastClose - closes[closes.length - 21]) / closes[closes.length - 21] * 100;
-      const rsVsSpy = stockReturn - spyReturn;
-      if (rsVsSpy > 8)        contScore = Math.min(1, contScore + 0.20);
-      else if (rsVsSpy > 4)   contScore = Math.min(1, contScore + 0.10);
-      else if (rsVsSpy < -10) contScore = Math.max(-1, contScore - 0.20);
-    }
-
-    const isGoldenBull = revScore > 0.2 && contScore > 0.25;
-
-    // True conviction range 0–100 (V1 floors at 50)
-    const avgScore = (revScore + contScore) / 2;
-    const conviction = Math.round(Math.min(100, Math.max(0, 50 + (avgScore - 0.2) / 0.8 * 50)));
-
-    console.log(`[BULL PEN] ${ticker}: rev=${revScore.toFixed(2)} cont=${contScore.toFixed(2)} => ${isGoldenBull ? '🧪 BULL' : 'skip'}`);
-
-    const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
-    const spark = closes.slice(-30);
-    const nearestRes = sr.resistance.filter(r => r.price > lastClose)[0];
-    const estimatedUpside = nearestRes
-      ? (nearestRes.price - lastClose) / lastClose * 100
-      : Math.max(0, (yearHigh - lastClose) / lastClose * 100);
-
-    return { ticker, price: lastClose, isGoldenBull, conviction, topSignal, revScore, contScore, spark, estimatedUpside };
-  } catch (e) {
-    console.error(`[BULL PEN] ${ticker}: failed —`, e.message);
-    return { _networkFail: true };
-  }
-}
-
-async function runBullPenScanner() {
-  let spyReturn = null;
-  try {
-    const spyData = await fetchStockData('SPY', getScanTimeframe());
-    if (spyData?.closes) {
-      const sc = spyData.closes.filter(Boolean);
-      if (sc.length >= 21) spyReturn = (sc[sc.length-1] - sc[sc.length-21]) / sc[sc.length-21] * 100;
-    }
-    console.log(`[BULL PEN] SPY 20-day return: ${spyReturn?.toFixed(2) ?? 'unavailable'}%`);
-  } catch (_) {}
-
-  return _runScanCore(SCAN_UNIVERSE, {
-    btnId:     'bpScanBtn',      progressId: 'bpProgress',     gridId:    'bpResultsGrid',
-    emptyId:   'bpEmpty',        headerId:   'bpResultsHeader', foundMsgId:'bpFoundMsg',
-    statusId:  'bpStatusText',   countId:    'bpProgressCount', barId:     'bpProgressBar',
-    btnLabel:  '🧪 SCAN AGAIN',
-  }, (t) => quickAnalyzeForScanV2(t, spyReturn), hofRecordBullPen, renderBullPenHoF);
-}
-
-async function hofRecordBullPen(bulls) {
-  try {
-    await fetch('/api/bullpen/record', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
-      signal: AbortSignal.timeout(10000),
-    });
-  } catch (e) {
-    console.error('[BP HOF] record failed:', e.message);
-  }
-  try {
-    const raw   = localStorage.getItem(BP_HOF_KEY);
-    const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
-    const now   = Date.now();
-    for (const b of bulls) {
-      const dup = store.signals.find(s => s.ticker === b.ticker && now - s.ts < 7 * 86400000);
-      if (!dup) store.signals.push({ ticker: b.ticker, ts: now, price: b.price, conviction: b.conviction });
-    }
-    store.signals = store.signals.slice(-500);
-    localStorage.setItem(BP_HOF_KEY, JSON.stringify(store));
-  } catch (_) {}
-}
 
 async function renderBullPenHoF() {
   const section = document.getElementById('bpHofSection');
@@ -886,34 +574,60 @@ async function renderBullPenHoF() {
       .from('bull_pen_hof')
       .select('ticker,detected_at,signal_price,conviction')
       .order('detected_at', { ascending: false })
-      .limit(1000);
+      .limit(500);
 
     if (gen !== _bpRenderGen) return;
     if (error) throw error;
 
+    const titleEl    = document.getElementById('bpHofTitle');
+    const subtitleEl = document.getElementById('bpHofSubtitle');
+    const countEl    = document.getElementById('bpHofCount');
+    const btn        = document.getElementById('bpHofReturnBtn');
+
     if (!records?.length) { section.style.display = 'none'; return; }
 
     section.style.display = 'block';
-    const titleEl    = document.getElementById('bpHofTitle');
-    const subtitleEl = document.getElementById('bpHofSubtitle');
-    const btn        = document.getElementById('bpHofReturnBtn');
 
     if (isAdmin) {
       _bpAdminRecords = records;
-      if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HALL OF FAME — ADMIN';
-      if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ALL ${records.length} SIGNALS`;
+      const uniqueCount = new Set(records.map(r => r.ticker)).size;
+      if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HOF — ADMIN';
+      if (subtitleEl) subtitleEl.textContent = `${records.length} SIGNALS · ${uniqueCount} TICKERS`;
+      if (countEl)    countEl.textContent    = records.length;
       if (btn) btn.style.display = 'block';
       _renderBullPenAdminTable(records);
     } else {
       _bpAdminRecords = [];
-      if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HALL OF FAME';
-      if (subtitleEl) subtitleEl.textContent = `EXPERIMENTAL FORMULA · ${records.length} SIGNALS DETECTED`;
+      const uniqueCount = new Set(records.map(r => r.ticker)).size;
+      if (countEl)    countEl.textContent    = uniqueCount;
       if (btn) btn.style.display = 'none';
       await _renderBullPenPublicTable(records, gen);
     }
   } catch (e) {
     console.error('[BP HOF] render error:', e.message);
-    section.style.display = 'none';
+    // localStorage fallback
+    try {
+      const raw = localStorage.getItem(BP_HOF_KEY);
+      if (!raw) return;
+      const store = JSON.parse(raw);
+      if (!store.signals?.length) return;
+      const section2 = document.getElementById('bpHofSection');
+      if (section2) section2.style.display = 'block';
+      const tbody = document.getElementById('bpHofTbody');
+      if (tbody) {
+        tbody.innerHTML = store.signals.slice().reverse().slice(0, 20).map(s => {
+          const lbl   = new Date(s.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          const price = s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2);
+          return `<tr>
+            <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
+            <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+            <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+            <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+            <td style="padding:7px 8px;color:var(--muted);">—</td>
+          </tr>`;
+        }).join('');
+      }
+    } catch (_) {}
   }
 }
 
@@ -921,11 +635,11 @@ async function _renderBullPenPublicTable(records, gen) {
   const tbody = document.getElementById('bpHofTbody');
   if (!tbody) return;
 
-  // Keep oldest (first detection) per ticker
+  // One per ticker — keep OLDEST (first detection price), records sorted DESC
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const allUnique = [...byTicker.values()];
-  // Show top 50 by conviction initially (placeholder before prices load)
+  // Show top 50 by conviction initially
   const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
@@ -933,13 +647,13 @@ async function _renderBullPenPublicTable(records, gen) {
     tbody.innerHTML = rows.map(s => {
       const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const price  = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color  = s.pct != null ? (s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)') : 'var(--muted)';
+      const color  = s.pct != null ? (s.pct >= 0 ? '#ff9055' : 'var(--accent2)') : 'var(--muted)';
       const pctStr = s.pct != null ? `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%` : '—';
       return `<tr>
         <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
         <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
         <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-        <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
         <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
       </tr>`;
     }).join('');
@@ -947,7 +661,6 @@ async function _renderBullPenPublicTable(records, gen) {
 
   renderRows(initialView.map(r => ({ ...r, pct: null })));
 
-  // Fetch prices for ALL unique tickers so low-conviction high-gainers aren't excluded
   try {
     const symbols  = allUnique.map(r => r.ticker).join(',');
     const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
@@ -955,6 +668,7 @@ async function _renderBullPenPublicTable(records, gen) {
     if (!res.ok) throw new Error(`proxy ${res.status}`);
     const json   = await res.json();
     const quotes = json.quoteResponse?.result || [];
+
     const prices = {};
     for (const q of quotes) {
       if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
@@ -981,7 +695,7 @@ async function _renderBullPenPublicTable(records, gen) {
 function _renderBullPenAdminTable(records) {
   const tbody = document.getElementById('bpHofTbody');
   if (!tbody) return;
-  // Deduplicate: one per ticker, keep OLDEST — records sorted DESC so always overwrite gives oldest
+  // Deduplicate: one per ticker, keep OLDEST — records sorted DESC so last write = oldest
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
@@ -992,7 +706,7 @@ function _renderBullPenAdminTable(records) {
       <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
       <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-      <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+      <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
       <td style="padding:7px 8px;color:var(--muted);">—</td>
     </tr>`;
   }).join('');
@@ -1008,6 +722,7 @@ async function loadBullPenReturns() {
   const byTicker = new Map();
   for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
   const toLoad = [...byTicker.values()];
+
   const results = await Promise.all(toLoad.map(async s => {
     try {
       const data = await fetchStockData(s.ticker, '1d|5d');
@@ -1016,19 +731,20 @@ async function loadBullPenReturns() {
       return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
     } catch (_) { return null; }
   }));
+
   const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
   const tbody = document.getElementById('bpHofTbody');
   if (tbody && sorted.length) {
     tbody.innerHTML = sorted.map(s => {
       const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
       const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      const color = s.pct >= 0 ? '#ff9055' : 'var(--accent2)';
       const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
       return `<tr>
         <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
         <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
         <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-        <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
         <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
       </tr>`;
     }).join('');
@@ -1038,16 +754,463 @@ async function loadBullPenReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-  initTheme();
-  await _migrateHofToSupabase();
-  renderHoF();
-  renderBullPenHoF();
-  renderAllHoF();
-  // Pre-load NVDA so new visitors see the analysis tool in action
-  const input = document.getElementById('tickerInput');
-  if (input && !input.value.trim()) {
-    input.value = 'NVDA';
-    setTimeout(runAnalysis, 700);
+// ── Analysis ──────────────────────────────────────────────────────────────────
+
+const ANALYSIS_CACHE = new Map();
+
+async function fetchStockData(ticker, range = '3mo') {
+  const cacheKey = `${ticker}|${range}`;
+  const hit = ANALYSIS_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.ts < 5 * 60 * 1000) return hit.data;
+
+  const ranges = range.split('|');
+  let data = null;
+  for (const r of ranges) {
+    try {
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=${r}&includePrePost=false`;
+      const res = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const result = json?.chart?.result?.[0];
+      if (!result) continue;
+      const closes = result.indicators?.quote?.[0]?.close || [];
+      const volumes = result.indicators?.quote?.[0]?.volume || [];
+      const timestamps = result.timestamp || [];
+      if (closes.length >= 2) {
+        data = { closes, volumes, timestamps };
+        break;
+      }
+    } catch (_) { continue; }
   }
-});
+  if (data) ANALYSIS_CACHE.set(cacheKey, { data, ts: Date.now() });
+  return data;
+}
+
+function calcEMA(closes, period) {
+  if (closes.length < period) return null;
+  const k = 2 / (period + 1);
+  let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  for (let i = period; i < closes.length; i++) ema = closes[i] * k + ema * (1 - k);
+  return ema;
+}
+
+function calcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  let avgGain = gains / period, avgLoss = losses / period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    avgGain = (avgGain * (period - 1) + Math.max(d, 0)) / period;
+    avgLoss = (avgLoss * (period - 1) + Math.max(-d, 0)) / period;
+  }
+  if (avgLoss === 0) return 100;
+  return 100 - 100 / (1 + avgGain / avgLoss);
+}
+
+function calcMACD(closes) {
+  const ema12 = calcEMA(closes, 12);
+  const ema26 = calcEMA(closes, 26);
+  if (ema12 == null || ema26 == null) return null;
+  return ema12 - ema26;
+}
+
+function calcBB(closes, period = 20) {
+  if (closes.length < period) return null;
+  const slice = closes.slice(-period);
+  const mean  = slice.reduce((a, b) => a + b, 0) / period;
+  const std   = Math.sqrt(slice.reduce((a, b) => a + (b - mean) ** 2, 0) / period);
+  return { upper: mean + 2 * std, lower: mean - 2 * std, mean };
+}
+
+function calcATR(closes, period = 14) {
+  if (closes.length < period + 1) return null;
+  const trs = [];
+  for (let i = 1; i < closes.length; i++) trs.push(Math.abs(closes[i] - closes[i - 1]));
+  return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
+}
+
+function calcOBV(closes, volumes) {
+  let obv = 0;
+  const obvArr = [0];
+  for (let i = 1; i < closes.length; i++) {
+    if (closes[i] > closes[i - 1])      obv += (volumes[i] || 0);
+    else if (closes[i] < closes[i - 1]) obv -= (volumes[i] || 0);
+    obvArr.push(obv);
+  }
+  return obvArr;
+}
+
+function calcVWAP(closes, volumes) {
+  let cumPV = 0, cumV = 0;
+  for (let i = 0; i < closes.length; i++) {
+    cumPV += closes[i] * (volumes[i] || 0);
+    cumV  += (volumes[i] || 0);
+  }
+  return cumV > 0 ? cumPV / cumV : null;
+}
+
+async function quickAnalyzeForScan(ticker) {
+  const data = await fetchStockData(ticker, '3mo|6mo');
+  if (!data) return null;
+  const { closes, volumes } = data;
+  if (closes.length < 30) return null;
+
+  const price   = closes[closes.length - 1];
+  const ema9    = calcEMA(closes, 9);
+  const ema21   = calcEMA(closes, 21);
+  const ema50   = calcEMA(closes, 50);
+  const rsi     = calcRSI(closes);
+  const macd    = calcMACD(closes);
+  const bb      = calcBB(closes);
+  const atr     = calcATR(closes);
+  const obv     = calcOBV(closes, volumes);
+  const vwap    = calcVWAP(closes, volumes);
+
+  if (!price || !ema9 || !ema21 || !rsi || !bb) return null;
+
+  const signals = [];
+
+  // Trend
+  if (ema9 > ema21)                                        signals.push('EMA9>EMA21 bullish cross');
+  if (ema50 && price > ema50)                              signals.push('Price above EMA50');
+  if (ema9 > ema21 && ema50 && ema21 > ema50)             signals.push('Full EMA stack bullish');
+
+  // Momentum
+  if (rsi > 55 && rsi < 75)                               signals.push(`RSI momentum zone (${rsi.toFixed(0)})`);
+  if (rsi > 50 && macd && macd > 0)                       signals.push('RSI>50 + MACD positive');
+
+  // Mean reversion
+  if (bb && price < bb.mean * 1.01 && price > bb.lower)   signals.push('Near BB mean — mean reversion');
+  if (bb && price > bb.mean && price < bb.upper * 0.98)   signals.push('Above BB mean, room to upper');
+
+  // Volume
+  if (vwap && price > vwap)                               signals.push('Price above VWAP');
+  if (obv.length >= 5) {
+    const obvRecent = obv.slice(-5);
+    if (obvRecent[4] > obvRecent[0])                      signals.push('OBV trending up (buying pressure)');
+  }
+
+  // ATR / volatility
+  if (atr && price > 0 && atr / price < 0.025)            signals.push('Low ATR — tight volatility');
+
+  const conviction = Math.min(100, Math.round(signals.length / 8 * 100));
+  const isGoldenBull = signals.length >= 5;
+
+  return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
+}
+
+async function quickAnalyzeForScanV2(ticker, spyReturn) {
+  const data = await fetchStockData(ticker, '3mo|6mo');
+  if (!data) return null;
+  const { closes, volumes } = data;
+  if (closes.length < 30) return null;
+
+  const price   = closes[closes.length - 1];
+  const ema9    = calcEMA(closes, 9);
+  const ema21   = calcEMA(closes, 21);
+  const ema50   = calcEMA(closes, 50);
+  const rsi     = calcRSI(closes);
+  const macd    = calcMACD(closes);
+  const bb      = calcBB(closes);
+  const atr     = calcATR(closes);
+  const obv     = calcOBV(closes, volumes);
+  const vwap    = calcVWAP(closes, volumes);
+
+  if (!price || !ema9 || !ema21 || !rsi || !bb) return null;
+
+  const signals = [];
+
+  if (ema9 > ema21)                                        signals.push('EMA9>EMA21 bullish cross');
+  if (ema50 && price > ema50)                              signals.push('Price above EMA50');
+  if (ema9 > ema21 && ema50 && ema21 > ema50)             signals.push('Full EMA stack bullish');
+  if (rsi > 55 && rsi < 80)                               signals.push(`RSI momentum zone (${rsi.toFixed(0)})`);
+  if (rsi > 50 && macd && macd > 0)                       signals.push('RSI>50 + MACD positive');
+  if (bb && price < bb.mean * 1.02 && price > bb.lower)   signals.push('Near BB mean — mean reversion setup');
+  if (bb && price > bb.mean && price < bb.upper * 0.97)   signals.push('Above BB mean, room to upper band');
+  if (vwap && price > vwap)                               signals.push('Price above VWAP');
+  if (obv.length >= 5) {
+    const obvRecent = obv.slice(-5);
+    if (obvRecent[4] > obvRecent[0])                      signals.push('OBV trending up (buying pressure)');
+  }
+  if (atr && price > 0 && atr / price < 0.03)             signals.push('Low ATR — tight volatility');
+  if (spyReturn != null) {
+    const tickerReturn = (price - closes[0]) / closes[0] * 100;
+    if (tickerReturn > spyReturn + 3)                     signals.push(`Outperforming SPY by ${(tickerReturn - spyReturn).toFixed(1)}%`);
+  }
+
+  const conviction = Math.min(100, Math.round(signals.length / 9 * 100));
+  const isGoldenBull = signals.length >= 6;
+
+  return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
+}
+
+// ── Ticker analysis (full chart) ──────────────────────────────────────────────
+
+let _currentTicker = null;
+let _chartInstance = null;
+
+async function loadTickerAndAnalyze(ticker) {
+  _currentTicker = ticker;
+  document.getElementById('tickerInput').value = ticker;
+  await runAnalysis();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function runAnalysis() {
+  const input  = document.getElementById('tickerInput');
+  const ticker = (input?.value || '').trim().toUpperCase();
+  if (!ticker) return;
+  _currentTicker = ticker;
+
+  const resultDiv  = document.getElementById('result');
+  const loadingDiv = document.getElementById('loading');
+  if (resultDiv)  resultDiv.style.display  = 'none';
+  if (loadingDiv) loadingDiv.style.display = 'block';
+
+  try {
+    const data = await fetchStockData(ticker, '6mo|3mo|1mo');
+    if (!data || data.closes.length < 20) {
+      if (loadingDiv) loadingDiv.style.display = 'none';
+      if (resultDiv) {
+        resultDiv.style.display = 'block';
+        resultDiv.innerHTML = `<div style="color:var(--accent2);padding:20px;">Could not load data for ${ticker}. Try a different symbol.</div>`;
+      }
+      return;
+    }
+
+    const { closes, volumes, timestamps } = data;
+    const price   = closes[closes.length - 1];
+    const ema9    = calcEMA(closes, 9);
+    const ema21   = calcEMA(closes, 21);
+    const ema50   = calcEMA(closes, 50);
+    const ema200  = calcEMA(closes, 200);
+    const rsi     = calcRSI(closes);
+    const macd    = calcMACD(closes);
+    const bb      = calcBB(closes);
+    const atr     = calcATR(closes);
+    const obv     = calcOBV(closes, volumes);
+    const vwap    = calcVWAP(closes, volumes);
+
+    const signals = [];
+    if (ema9 && ema21 && ema9 > ema21)                       signals.push({ text: 'EMA 9 crossed above EMA 21 — short-term bullish momentum', strength: 'strong' });
+    if (ema50 && price > ema50)                               signals.push({ text: 'Price trading above EMA 50 — medium-term uptrend intact', strength: 'strong' });
+    if (ema9 && ema21 && ema50 && ema9 > ema21 && ema21 > ema50) signals.push({ text: 'Full EMA stack aligned bullish (9 > 21 > 50)', strength: 'strong' });
+    if (ema200 && price > ema200)                             signals.push({ text: 'Price above EMA 200 — long-term bull market structure', strength: 'moderate' });
+    if (rsi && rsi > 55 && rsi < 75)                         signals.push({ text: `RSI at ${rsi.toFixed(1)} — in momentum zone, not yet overbought`, strength: 'strong' });
+    if (rsi && rsi > 50 && macd && macd > 0)                 signals.push({ text: 'RSI > 50 with positive MACD — dual momentum confirmation', strength: 'strong' });
+    if (rsi && rsi < 35)                                     signals.push({ text: `RSI at ${rsi.toFixed(1)} — oversold, potential reversal zone`, strength: 'moderate' });
+    if (bb && price < bb.mean * 1.01 && price > bb.lower)    signals.push({ text: 'Price near Bollinger Band mean — mean reversion opportunity', strength: 'moderate' });
+    if (bb && price > bb.upper)                              signals.push({ text: 'Price above upper Bollinger Band — strong breakout momentum', strength: 'moderate' });
+    if (vwap && price > vwap)                                signals.push({ text: 'Price above VWAP — institutional buying bias', strength: 'moderate' });
+    if (obv.length >= 10) {
+      const obvTrend = obv[obv.length - 1] - obv[obv.length - 10];
+      if (obvTrend > 0)                                      signals.push({ text: 'On-Balance Volume rising — accumulation detected', strength: 'moderate' });
+    }
+    if (atr && price > 0) {
+      const atrPct = atr / price * 100;
+      if (atrPct < 2)                                        signals.push({ text: `ATR ${atrPct.toFixed(1)}% of price — low volatility, coiling for a move`, strength: 'weak' });
+      if (atrPct > 5)                                        signals.push({ text: `ATR ${atrPct.toFixed(1)}% of price — high volatility, wide swings expected`, strength: 'weak' });
+    }
+
+    const strongCount = signals.filter(s => s.strength === 'strong').length;
+    const totalCount  = signals.length;
+    const conviction  = Math.min(100, Math.round((strongCount * 2 + totalCount) / 15 * 100));
+
+    const isGoldenBull = strongCount >= 3 && conviction >= 50;
+    const isBullish    = conviction >= 30;
+
+    if (loadingDiv) loadingDiv.style.display = 'none';
+    if (resultDiv)  resultDiv.style.display  = 'block';
+
+    const priceStr = price < 10 ? price.toFixed(4) : price.toFixed(2);
+    const signalColor = isGoldenBull ? 'var(--accent)' : (isBullish ? 'var(--gold)' : 'var(--accent2)');
+    const signalLabel = isGoldenBull ? '⚡ GOLDEN BULL' : (isBullish ? '📈 BULLISH' : '⚠ NEUTRAL / BEARISH');
+
+    resultDiv.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;letter-spacing:2px;">${ticker}</div>
+          <div style="font-size:13px;color:var(--muted);margin-top:2px;">$${priceStr}</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:700;font-size:14px;color:${signalColor};letter-spacing:1px;">${signalLabel}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px;">CONVICTION: <span style="color:var(--gold);font-weight:700;">${conviction}%</span></div>
+        </div>
+      </div>
+      <div style="margin-bottom:20px;">
+        <canvas id="priceChart" height="220"></canvas>
+      </div>
+      ${signals.length ? `
+      <div style="font-size:10px;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px;">SIGNALS DETECTED (${signals.length})</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${signals.map(s => `
+          <div style="display:flex;align-items:flex-start;gap:10px;padding:8px 10px;background:rgba(255,255,255,0.03);border-left:2px solid ${
+            s.strength === 'strong' ? 'var(--accent)' : s.strength === 'moderate' ? 'var(--gold)' : 'var(--muted)'
+          };">
+            <span style="font-size:10px;color:${
+              s.strength === 'strong' ? 'var(--accent)' : s.strength === 'moderate' ? 'var(--gold)' : 'var(--muted)'
+            };flex-shrink:0;margin-top:1px;">${s.strength === 'strong' ? '●' : s.strength === 'moderate' ? '◐' : '○'}</span>
+            <span style="font-size:11px;line-height:1.5;">${s.text}</span>
+          </div>`).join('')}
+      </div>` : '<div style="color:var(--muted);font-size:11px;">No strong signals detected.</div>'}
+    `;
+
+    // Draw chart
+    const ctx = document.getElementById('priceChart')?.getContext('2d');
+    if (ctx && closes.length > 1) {
+      if (_chartInstance) { _chartInstance.destroy(); _chartInstance = null; }
+      const labels = timestamps.map(t => {
+        const d = new Date(t * 1000);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      });
+      const ema9Arr  = closes.map((_, i) => i >= 8  ? calcEMA(closes.slice(0, i + 1), 9)  : null);
+      const ema21Arr = closes.map((_, i) => i >= 20 ? calcEMA(closes.slice(0, i + 1), 21) : null);
+      _chartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            { label: 'Price',  data: closes,   borderColor: '#00ff88', borderWidth: 2,   pointRadius: 0, tension: 0.3, fill: false },
+            { label: 'EMA 9', data: ema9Arr,  borderColor: '#f5a623', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false, borderDash: [4,2] },
+            { label: 'EMA 21',data: ema21Arr, borderColor: '#4d9fff', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false, borderDash: [4,2] },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: { display: true, labels: { color: '#aaa', font: { size: 10 }, boxWidth: 20 } },
+            zoom: {
+              pan:  { enabled: true,  mode: 'x' },
+              zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+            },
+          },
+          scales: {
+            x: { ticks: { color: '#666', font: { size: 9 }, maxTicksLimit: 8 }, grid: { color: 'rgba(255,255,255,0.04)' } },
+            y: { ticks: { color: '#666', font: { size: 9 } },                   grid: { color: 'rgba(255,255,255,0.04)' } },
+          },
+        },
+      });
+    }
+  } catch (err) {
+    if (loadingDiv) loadingDiv.style.display = 'none';
+    if (resultDiv) {
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = `<div style="color:var(--accent2);padding:20px;">Error analyzing ${ticker}: ${err.message}</div>`;
+    }
+  }
+}
+
+// ── Bull Pen scanner (V2) ─────────────────────────────────────────────────────
+
+let _bpScanRunning = false;
+let _spyReturn     = null;
+
+async function getSpyReturn() {
+  if (_spyReturn !== null) return _spyReturn;
+  try {
+    const data = await fetchStockData('SPY', '3mo');
+    if (data?.closes?.length >= 2) {
+      const c = data.closes.filter(Boolean);
+      _spyReturn = (c[c.length - 1] - c[0]) / c[0] * 100;
+    }
+  } catch (_) {}
+  return _spyReturn;
+}
+
+function runBullPenScanner() {
+  const daily   = getDailyRotation(ROTATION_POOL, 20);
+  const tickers = [...new Set([...SCAN_UNIVERSE_CORE, ...daily])];
+  return _runScanCore(tickers, {
+    btnId: 'bpScanBtn',              progressId: 'bpScanProgress',     gridId: 'bpScanGrid',
+    emptyId: 'bpScanEmpty',          headerId: 'bpScanHeader',          foundMsgId: 'bpScanFoundMsg',
+    statusId: 'bpScanStatusText',    countId: 'bpScanProgressCount',    barId: 'bpScanProgressBar',
+    btnLabel: '🔍 SCAN AGAIN',
+  }, (t) => quickAnalyzeForScanV2(t, spyReturn), hofRecordBullPen, renderBullPenHoF);
+}
+
+async function hofRecordBullPen(bulls) {
+  try {
+    await fetch('/api/hof/record-bp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
+    });
+  } catch (_) {}
+
+  // localStorage fallback
+  try {
+    const raw   = localStorage.getItem(BP_HOF_KEY);
+    const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
+    const now   = Date.now();
+    for (const b of bulls) {
+      const dup = store.signals.find(s => s.ticker === b.ticker && now - s.ts < 7 * 86400000);
+      if (!dup) store.signals.push({ ticker: b.ticker, ts: now, price: b.price, conviction: b.conviction });
+    }
+    store.signals = store.signals.slice(-500);
+    localStorage.setItem(BP_HOF_KEY, JSON.stringify(store));
+  } catch (_) {}
+}
+
+// ── Watchlist HOF ticker ─────────────────────────────────────────────────────
+
+function updateBullPenTicker() {
+  const tickerEl = document.getElementById('bpHofTicker');
+  if (!tickerEl) return;
+  try {
+    const raw = localStorage.getItem(BP_HOF_KEY);
+    if (!raw) return;
+    const store = JSON.parse(raw);
+    if (!store.signals?.length) return;
+    const items = store.signals.slice().reverse().map(s =>
+      `<span style="margin-right:24px;">${s.ticker} <span style="color:var(--gold);">$${s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2)}</span></span>`
+    ).join('');
+    tickerEl.innerHTML = items + items;
+  } catch (_) {}
+}
+
+function updateGoldenBullTicker() {
+  const tickerEl = document.getElementById('hofTicker');
+  if (!tickerEl) return;
+  try {
+    const raw = localStorage.getItem(HOF_KEY);
+    if (!raw) return;
+    const store = JSON.parse(raw);
+    if (!store.signals?.length) return;
+    const items = store.signals.slice().reverse().map(s =>
+      `<span style="margin-right:24px;">${s.ticker} <span style="color:var(--gold);">$${s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2)}</span></span>`
+    ).join('');
+    tickerEl.innerHTML = items + items;
+  } catch (_) {}
+}
+
+// ── How it works ─────────────────────────────────────────────────────────────
+
+function toggleHowItWorks() {
+  const el = document.getElementById('howItWorks');
+  if (!el) return;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── Theme toggle ─────────────────────────────────────────────────────────────
+
+function toggleTheme() {
+  const isDark = document.body.classList.toggle('light-mode');
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) btn.textContent = isDark ? '☀️' : '🌙';
+  try { localStorage.setItem('signalscan_theme', isDark ? 'light' : 'dark'); } catch (_) {}
+}
+
+(function() {
+  try {
+    if (localStorage.getItem('signalscan_theme') === 'light') {
+      document.body.classList.add('light-mode');
+      const btn = document.getElementById('themeToggleBtn');
+      if (btn) btn.textContent = '☀️';
+    }
+  } catch (_) {}
+})();
