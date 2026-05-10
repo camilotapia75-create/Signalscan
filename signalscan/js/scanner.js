@@ -313,7 +313,7 @@ async function renderHoF() {
     const { data: records, error } = await sb
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction,source')
-      .or('source.eq.scanner,source.is.null')
+      .not('source', 'eq', 'watchlist')
       .order('detected_at', { ascending: false })
       .limit(1000);
 
@@ -367,11 +367,9 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   const btn   = document.getElementById(retBtnId);
   if (btn) btn.style.display = 'none';
 
-  // One entry per ticker (most recent signal), capped at 30 for price fetching
+  // One entry per ticker — keep OLDEST (first detection price), records sorted DESC
   const byTicker = new Map();
-  for (const r of records) {
-    if (!byTicker.has(r.ticker)) byTicker.set(r.ticker, r);
-  }
+  for (const r of records) byTicker.set(r.ticker, r);
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
 
   const renderRows = (rows) => {
@@ -433,24 +431,29 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   }
 }
 
-function _renderHofAdminTable(records, tbodyId = 'hofTbody', retPrefix = 'hret') {
+function _adminSrcBadge(source) {
+  if (source === 'watchlist') return '<span style="font-size:9px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>';
+  if (source === 'scanner')   return '<span style="font-size:9px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>';
+  return '<span style="font-size:9px;color:var(--muted);letter-spacing:0.5px;">LEGACY</span>';
+}
+
+function _renderHofAdminTable(records, tbodyId = 'hofTbody') {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
-  tbody.innerHTML = records.map(s => {
+  // Deduplicate: one per ticker, keep OLDEST (first detection) — records sorted DESC
+  // so always overwriting means the last write wins = oldest record per ticker
+  const byTicker = new Map();
+  for (const r of records) byTicker.set(r.ticker, r);
+  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
+  tbody.innerHTML = unique.map(s => {
     const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
     const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-    const ts    = new Date(s.detected_at).getTime();
-    const src   = s.source === 'watchlist'
-      ? '<span style="font-size:9px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>'
-      : s.source === 'scanner'
-        ? '<span style="font-size:9px;color:var(--accent);letter-spacing:0.5px;">SCANNER</span>'
-        : '<span style="font-size:9px;color:var(--muted);letter-spacing:0.5px;">LEGACY</span>';
     return `<tr>
-      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${src}</td>
+      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
       <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
       <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-      <td id="${retPrefix}-${s.ticker}-${ts}" style="padding:7px 8px;color:var(--muted);">—</td>
+      <td style="padding:7px 8px;color:var(--muted);">—</td>
     </tr>`;
   }).join('');
 }
@@ -498,20 +501,36 @@ async function loadHofReturns() {
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
   if (_hofAdminRecords.length) {
-    // Supabase admin path
-    await Promise.all(_hofAdminRecords.slice(0, 50).map(async s => {
+    // Deduplicate to one per ticker (same as render), then fetch returns
+    // Keep oldest (first detection) per ticker — overwrite gives oldest since records sorted DESC
+    const byTicker = new Map();
+    for (const r of _hofAdminRecords) byTicker.set(r.ticker, r);
+    const toLoad = [...byTicker.values()];
+    const results = await Promise.all(toLoad.map(async s => {
       try {
         const data = await fetchStockData(s.ticker, '1d|5d');
         const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-        if (!cur) return;
-        const ret = (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100;
-        const el  = document.getElementById(`hret-${s.ticker}-${new Date(s.detected_at).getTime()}`);
-        if (el) {
-          el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
-          el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
-        }
-      } catch (_) {}
+        if (!cur) return null;
+        return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+      } catch (_) { return null; }
     }));
+    const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+    const tbody = document.getElementById('hofTbody');
+    if (tbody && sorted.length) {
+      tbody.innerHTML = sorted.map(s => {
+        const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+        const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+        const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+        const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
+        return `<tr>
+          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+          <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+          <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+          <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+          <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
+        </tr>`;
+      }).join('');
+    }
   } else {
     // localStorage legacy path — fetch prices, sort by % gain, re-render
     try {
@@ -578,9 +597,10 @@ async function renderAllHoF() {
     const watchlistCount = records.filter(r => r.source === 'watchlist').length;
     const scannerCount   = records.length - watchlistCount;
 
-    // Non-admin: only show this section when there's actual watchlist data to show
+    // Only show this section when there's actual watchlist data to differentiate it
+    if (!watchlistCount) { section.style.display = 'none'; return; }
+
     if (!isAdmin) {
-      if (!watchlistCount) { section.style.display = 'none'; return; }
       section.style.display = 'block';
       const subtitleEl = document.getElementById('allHofSubtitle');
       const uniqueCount = new Set(records.map(r => r.ticker)).size;
@@ -613,19 +633,34 @@ async function loadAllHofReturns() {
   const btn = document.getElementById('allHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  await Promise.all(_allHofAdminRecords.slice(0, 50).map(async s => {
+  // Keep oldest (first detection) per ticker
+  const byTicker = new Map();
+  for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
+  const results = await Promise.all([...byTicker.values()].map(async s => {
     try {
       const data = await fetchStockData(s.ticker, '1d|5d');
       const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-      if (!cur) return;
-      const ret = (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100;
-      const el  = document.getElementById(`allret-${s.ticker}-${new Date(s.detected_at).getTime()}`);
-      if (el) {
-        el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
-        el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
-      }
-    } catch (_) {}
+      if (!cur) return null;
+      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+    } catch (_) { return null; }
   }));
+  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+  const tbody = document.getElementById('allHofTbody');
+  if (tbody && sorted.length) {
+    tbody.innerHTML = sorted.map(s => {
+      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
+      </tr>`;
+    }).join('');
+  }
 
   _allReturnLoading = false;
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
@@ -884,10 +919,9 @@ async function _renderBullPenPublicTable(records, gen) {
   const tbody = document.getElementById('bpHofTbody');
   if (!tbody) return;
 
+  // Keep oldest (first detection) per ticker
   const byTicker = new Map();
-  for (const r of records) {
-    if (!byTicker.has(r.ticker)) byTicker.set(r.ticker, r);
-  }
+  for (const r of records) byTicker.set(r.ticker, r);
   const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
 
   const renderRows = (rows) => {
