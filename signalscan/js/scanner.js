@@ -370,7 +370,7 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   // One entry per ticker — keep OLDEST (first detection price), records sorted DESC
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
-  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
+  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
     if (gen !== getGen()) return;
@@ -421,11 +421,11 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
       if (!existing || r.pct > existing.pct) bestByTicker.set(r.ticker, r);
     }
 
-    const top20 = [...bestByTicker.values()]
+    const top30 = [...bestByTicker.values()]
       .sort((a, b) => b.pct - a.pct)
-      .slice(0, 20);
+      .slice(0, 30);
 
-    renderRows(top20);
+    renderRows(top30);
   } catch (e) {
     console.error('[HOF] price fetch failed:', e.message);
   }
@@ -922,7 +922,7 @@ async function _renderBullPenPublicTable(records, gen) {
   // Keep oldest (first detection) per ticker
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
-  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 30);
+  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
     if (gen !== _bpRenderGen) return;
@@ -967,7 +967,7 @@ async function _renderBullPenPublicTable(records, gen) {
       if (!existing || r.pct > existing.pct) bestByTicker.set(r.ticker, r);
     }
 
-    renderRows([...bestByTicker.values()].sort((a, b) => b.pct - a.pct).slice(0, 20));
+    renderRows([...bestByTicker.values()].sort((a, b) => b.pct - a.pct).slice(0, 30));
   } catch (e) {
     console.error('[BP HOF] price fetch failed:', e.message);
   }
@@ -976,16 +976,19 @@ async function _renderBullPenPublicTable(records, gen) {
 function _renderBullPenAdminTable(records) {
   const tbody = document.getElementById('bpHofTbody');
   if (!tbody) return;
-  tbody.innerHTML = records.map(s => {
+  // Deduplicate: one per ticker, keep OLDEST — records sorted DESC so always overwrite gives oldest
+  const byTicker = new Map();
+  for (const r of records) byTicker.set(r.ticker, r);
+  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
+  tbody.innerHTML = unique.map(s => {
     const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
     const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-    const ts    = new Date(s.detected_at).getTime();
     return `<tr>
       <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
       <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
       <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
-      <td id="bpret-${s.ticker}-${ts}" style="padding:7px 8px;color:var(--muted);">—</td>
+      <td style="padding:7px 8px;color:var(--muted);">—</td>
     </tr>`;
   }).join('');
 }
@@ -996,19 +999,35 @@ async function loadBullPenReturns() {
   const btn = document.getElementById('bpHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  await Promise.all(_bpAdminRecords.slice(0, 50).map(async s => {
+  // Deduplicate to one per ticker (oldest first detection), then fetch returns
+  const byTicker = new Map();
+  for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
+  const toLoad = [...byTicker.values()];
+  const results = await Promise.all(toLoad.map(async s => {
     try {
       const data = await fetchStockData(s.ticker, '1d|5d');
       const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-      if (!cur) return;
-      const ret = (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100;
-      const el  = document.getElementById(`bpret-${s.ticker}-${new Date(s.detected_at).getTime()}`);
-      if (el) {
-        el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
-        el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
-      }
-    } catch (_) {}
+      if (!cur) return null;
+      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+    } catch (_) { return null; }
   }));
+  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+  const tbody = document.getElementById('bpHofTbody');
+  if (tbody && sorted.length) {
+    tbody.innerHTML = sorted.map(s => {
+      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
+      </tr>`;
+    }).join('');
+  }
 
   _bpReturnLoading = false;
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
