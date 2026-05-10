@@ -370,7 +370,9 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   // One entry per ticker — keep OLDEST (first detection price), records sorted DESC
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
-  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
+  const allUnique = [...byTicker.values()];
+  // Show top 50 by conviction initially (placeholder before prices load)
+  const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
     if (gen !== getGen()) return;
@@ -391,11 +393,11 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   };
 
   // Show tickers immediately so the table is never blank
-  renderRows(unique.map(r => ({ ...r, pct: null })));
+  renderRows(initialView.map(r => ({ ...r, pct: null })));
 
-  // Fetch current prices for all unique tickers via batch quote endpoint
+  // Fetch prices for ALL unique tickers so low-conviction high-gainers aren't excluded
   try {
-    const symbols  = unique.map(r => r.ticker).join(',');
+    const symbols  = allUnique.map(r => r.ticker).join(',');
     const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
     const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
     if (!res.ok) throw new Error(`proxy ${res.status}`);
@@ -922,7 +924,9 @@ async function _renderBullPenPublicTable(records, gen) {
   // Keep oldest (first detection) per ticker
   const byTicker = new Map();
   for (const r of records) byTicker.set(r.ticker, r);
-  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
+  const allUnique = [...byTicker.values()];
+  // Show top 50 by conviction initially (placeholder before prices load)
+  const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
 
   const renderRows = (rows) => {
     if (gen !== _bpRenderGen) return;
@@ -941,10 +945,11 @@ async function _renderBullPenPublicTable(records, gen) {
     }).join('');
   };
 
-  renderRows(unique.map(r => ({ ...r, pct: null })));
+  renderRows(initialView.map(r => ({ ...r, pct: null })));
 
+  // Fetch prices for ALL unique tickers so low-conviction high-gainers aren't excluded
   try {
-    const symbols  = unique.map(r => r.ticker).join(',');
+    const symbols  = allUnique.map(r => r.ticker).join(',');
     const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
     const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
     if (!res.ok) throw new Error(`proxy ${res.status}`);
