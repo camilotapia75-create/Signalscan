@@ -53,24 +53,26 @@ const ROTATION_POOL = [
   'MCO','ROP','IDXX','ALGN','DXCM','OXY','FANG','MPC','CTRA','VST',
 ];
 
-function getDailyPicks(pool, count) {
-  const d = new Date();
-  let seed = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
-  const arr = [...pool];
-  for (let i = arr.length - 1; i > 0; i--) {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    const j = seed % (i + 1);
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+function buildScanUniverse() {
+  const seed = Math.floor(Date.now() / 86400000); // changes daily
+  let s = seed;
+  const shuffled = [...ROTATION_POOL];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  return arr.slice(0, count);
+  return [...SCAN_UNIVERSE_CORE, ...shuffled.slice(0, 20)];
 }
 
-const SCAN_UNIVERSE = [...SCAN_UNIVERSE_CORE, ...getDailyPicks(ROTATION_POOL, 20)];
+const SCAN_UNIVERSE = buildScanUniverse();
 
 function getScanTimeframe() {
-  const sel = document.getElementById('scanTimeframe');
-  return sel ? sel.value : '1wk|1y';
+  const sel = document.getElementById('timeframeSelect');
+  return sel ? sel.value : '1d|1y';
 }
+
+// ── Scanner ───────────────────────────────────────────────────────────────────
 
 async function quickAnalyzeForScan(ticker) {
   try {
@@ -81,68 +83,36 @@ async function quickAnalyzeForScan(ticker) {
     const indData = computeIndicators(data);
     if (!indData) return null;
 
-    // Price floor: sub-$3 non-crypto stocks are dead-company territory
     if (!ticker.includes('-USD') && indData.lastClose < 3) return null;
 
-    const highs = data.highs.filter(Boolean);
-    const lows = data.lows.filter(Boolean);
-
-    // Structural decline filter: reject only when BOTH signals confirm a dead company.
-    // Near yearly lows alone can mean a healthy stock in a market correction.
-    // Steeply declining EMA50 alone can happen during a broad selloff.
-    // Together they specifically identify CHPT-style structural collapse.
+    const highs  = data.highs.filter(Boolean);
+    const lows   = data.lows.filter(Boolean);
     const yearHigh = Math.max(...highs);
-    const yearLow = Math.min(...lows);
+    const yearLow  = Math.min(...lows);
     const rangeSpan = yearHigh - yearLow;
     const nearYearlyLow = rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20;
     const e50 = calcEMA(closes, 50);
-    const ema50Collapsing = e50.length >= 9 && (e50[e50.length - 1] - e50[e50.length - 9]) / e50[e50.length - 9] < -0.08;
+    const ema50Collapsing = e50.length >= 9 && (e50[e50.length-1] - e50[e50.length-9]) / e50[e50.length-9] < -0.08;
     if (nearYearlyLow && ema50Collapsing) return null;
 
-    const sr = findSupportResistance(highs, lows, closes);
-    const pa = analyzePriceAction(data);
-    const rev = generateAnalysis(ticker, indData, sr, pa);
+    const sr   = findSupportResistance(highs, lows, closes);
+    const pa   = analyzePriceAction(data);
+    const rev  = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
-    const isGoldenBull = rev.bias === 'BULLISH' && cont.bias === 'BULLISH';
-    console.log(`[SCANNER] ${ticker}: rev=${rev.bias}(${rev.score.toFixed(2)}) cont=${cont.bias}(${cont.score.toFixed(2)}) => ${isGoldenBull ? '🐂 GOLDEN BULL' : 'skip'}`);
-    const avgScore = (rev.score + cont.score) / 2;
-    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (avgScore - 0.2) / 0.8 * 50)));
+    const isGoldenBull = rev.score > 0.2 && cont.score > 0.25;
+
+    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (rev.score + cont.score - 0.45) / 0.55 * 50)));
     const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
     const spark = closes.slice(-30);
     const nearestRes = sr.resistance.filter(r => r.price > indData.lastClose)[0];
     const estimatedUpside = nearestRes
       ? (nearestRes.price - indData.lastClose) / indData.lastClose * 100
       : Math.max(0, (yearHigh - indData.lastClose) / indData.lastClose * 100);
+
     return { ticker, price: indData.lastClose, isGoldenBull, conviction, topSignal, revScore: rev.score, contScore: cont.score, spark, estimatedUpside };
   } catch (e) {
-    console.error(`[SCANNER] ${ticker}: failed —`, e.message);
+    console.error(`[SCAN] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
-  }
-}
-
-function computeIndicators(data) {
-  try {
-    const closes = data.closes.filter(Boolean);
-    const highs = data.highs.filter(Boolean);
-    const lows = data.lows.filter(Boolean);
-    const volumes = data.volumes.filter(Boolean);
-    const rsi = calcRSI(closes, 14);
-    const macd = calcMACD(closes);
-    const bb = calcBollinger(closes, 20, 2);
-    const stoch = calcStochastic(highs, lows, closes, 14, 3);
-    const atr = calcATR(highs, lows, closes, 14);
-    const obv = calcOBV(closes, volumes);
-    const e20 = calcEMA(closes, 20);
-    const e50 = calcEMA(closes, 50);
-    const ema20 = e20[e20.length - 1];
-    const ema50 = e50[e50.length - 1];
-    const lastClose = closes[closes.length - 1];
-    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-    const volRatio = volumes[volumes.length - 1] / (avgVol || 1);
-    return { rsi, macd, bb, stoch, atr, obv, ema20, ema50, lastClose, volRatio };
-  } catch (e) {
-    console.error('[SCANNER] computeIndicators error:', e.message);
-    return null;
   }
 }
 
@@ -207,27 +177,25 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn) {
       const msgEl = emptyMsg.querySelector('div:last-child');
       if (msgEl) {
         if (allFailed || mostFailed) {
-          msgEl.innerHTML = `<span style="color:#ff6b6b;">Network error — ${failed} tickers couldn't load.</span><br><span style="font-size:11px;color:var(--muted);">Check your connection and try again.</span>`;
+          msgEl.textContent = 'Market data unavailable. Try again in a few minutes.';
         } else {
-          msgEl.innerHTML = `No golden bull signals in current market conditions.${failed > 0 ? `<br><span style="font-size:11px;color:var(--muted);">${failed} ticker${failed !== 1 ? 's' : ''} couldn't load.</span>` : ''}`;
+          msgEl.textContent = 'No golden bull setups found in this scan. Market may be in a bearish phase.';
         }
       }
     }
-  } else {
-    if (header) { header.textContent = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`; header.style.display = 'block'; }
   }
 
-  if (foundMsg) foundMsg.textContent = (allFailed || mostFailed) ? `Network error — ${failed} of ${total} tickers failed to load` : failed > 0 ? `${failed} ticker${failed !== 1 ? 's' : ''} couldn't load (network)` : '';
+  if (header) header.style.display = '';
   progress.style.display = 'none';
-  btn.disabled  = false;
-  btn.textContent = `${btnLabel} (${bulls.length} found${failed > 0 ? `, ${failed} failed` : ''})`;
+  btn.disabled   = false;
+  btn.textContent = btnLabel || '🔍 SCAN AGAIN';
 }
 
-function runScanner() {
+function startScan() {
   return _runScanCore(SCAN_UNIVERSE, {
-    btnId: 'scanBtn',         progressId: 'scanProgress',    gridId: 'scanResultsGrid',
-    emptyId: 'scanEmpty',     headerId: 'scanResultsHeader', foundMsgId: 'scanFoundMsg',
-    statusId: 'scanStatusText', countId: 'scanProgressCount', barId: 'scanProgressBar',
+    btnId: 'scanBtn',           progressId: 'scanProgress',   gridId:    'resultsGrid',
+    emptyId: 'emptyMsg',        headerId: 'resultsHeader',    foundMsgId:'foundMsg',
+    statusId: 'statusText',     countId: 'progressCount',     barId:     'progressBar',
     btnLabel: '🔍 SCAN AGAIN',
   });
 }
@@ -264,7 +232,7 @@ function loadTickerAndAnalyze(ticker) {
   setTimeout(() => runAnalysis(), 400);
 }
 
-// ── Hall of Fame ─────────────────────────────────────────────────────────────
+// ── Hall of Fame (Golden Bull Scanner) ───────────────────────────────────────
 
 const HOF_KEY    = 'signalscan_hof';
 const ADMIN_EMAIL = 'camilotapia75@gmail.com';
@@ -287,7 +255,7 @@ async function hofRecord(bulls, source = 'scanner') {
   } catch (e) {
     console.error('[HOF] record failed:', e.message);
   }
-  // localStorage fallback for offline resilience
+  // Also persist locally for legacy/offline fallback
   try {
     const raw   = localStorage.getItem(HOF_KEY);
     const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
@@ -313,7 +281,7 @@ async function renderHoF() {
     const { data: records, error } = await sb
       .from('golden_bull_hof')
       .select('ticker,detected_at,signal_price,conviction,source')
-      .or('source.eq.scanner,source.is.null')
+      .not('source', 'eq', 'watchlist')
       .order('detected_at', { ascending: false })
       .limit(1000);
 
