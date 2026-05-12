@@ -142,34 +142,33 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn, hofSour
   if (countEl) countEl.textContent = `0 / ${total}`;
   console.log(`[SCANNER] Starting scan of ${total} tickers using ${getScanTimeframe()}`);
 
-  for (let i = 0; i < total; i++) {
-    const ticker = tickers[i];
-    if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
-    const r = await (analyzeFn || quickAnalyzeForScan)(ticker);
-    done++;
-    if (fill)    fill.style.width          = `${Math.round(done / total * 100)}%`;
-    if (countEl) countEl.textContent       = `${done} / ${total}`;
-    if (r && r._networkFail) { failed++; }
-    else if (r && r.isGoldenBull) {
-      bulls.push(r);
-      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
-      grid.insertAdjacentHTML('beforeend', renderScanCard(r));
-      // Record immediately — don't wait for end of scan in case browser closes
-      if (hofSource) {
-        (recordFn || hofRecord)([r], hofSource).catch(() => {});
+  // Process 4 tickers in parallel per batch — ~8x faster than serial 400ms per ticker.
+  // The Vercel proxy caches each ticker for 5 min, so the first user warms the cache
+  // and all subsequent users get near-instant CDN responses regardless of batch size.
+  const BATCH = 4;
+  for (let i = 0; i < total; i += BATCH) {
+    const slice = tickers.slice(i, Math.min(i + BATCH, total));
+    const results = await Promise.all(slice.map(t => (analyzeFn || quickAnalyzeForScan)(t)));
+    for (let j = 0; j < results.length; j++) {
+      done++;
+      const r = results[j];
+      if (statusEl) statusEl.textContent = `Scanning ${slice[j]}...`;
+      if (fill)    fill.style.width    = `${Math.round(done / total * 100)}%`;
+      if (countEl) countEl.textContent = `${done} / ${total}`;
+      if (r && r._networkFail) { failed++; }
+      else if (r && r.isGoldenBull) {
+        bulls.push(r);
+        if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
+        grid.insertAdjacentHTML('beforeend', renderScanCard(r));
+        if (hofSource) (recordFn || hofRecord)([r], hofSource).catch(() => {});
       }
     }
-    if (i < total - 1) await new Promise(res => setTimeout(res, 400));
+    if (i + BATCH < total) await new Promise(res => setTimeout(res, 200));
   }
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
   if (bulls.length > 0) {
-    try {
-      await (recordFn || hofRecord)(bulls);
-      await (renderFn || renderHoF)();
-    } catch (e) {
-      console.error('[SCANNER] post-scan record/render failed:', e.message);
-    }
+    (renderFn || renderHoF)();
   }
 
   const allFailed = failed > 0 && failed === done;
@@ -699,71 +698,90 @@ async function loadHofReturns() {
   const btn = document.getElementById('hofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  if (_hofAdminRecords.length) {
-    // Keep oldest (first detection) per ticker — overwrite gives oldest since records sorted DESC
-    const byTicker = new Map();
-    for (const r of _hofAdminRecords) byTicker.set(r.ticker, r);
-    const toLoad = [...byTicker.values()];
-    const results = await Promise.all(toLoad.map(async s => {
-      try {
-        const data = await fetchStockData(s.ticker, '1d|5d');
-        const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-        if (!cur) return null;
-        return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
-      } catch (_) { return null; }
-    }));
-    const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
-    const tbody = document.getElementById('hofTbody');
-    if (tbody && sorted.length) {
-      tbody.innerHTML = sorted.map(s => {
-        const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-        const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-        const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-        const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
-        return `<tr>
-          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
-          <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-          <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-          <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-          <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
-        </tr>`;
-      }).join('');
-    }
-  } else {
-    // localStorage legacy path — fetch prices, sort by % gain, re-render
-    try {
+  try {
+    if (_hofAdminRecords.length) {
+      // Keep oldest detection per ticker (records sorted DESC, so last overwrite = oldest)
+      const byTicker = new Map();
+      for (const r of _hofAdminRecords) byTicker.set(r.ticker, r);
+      const toLoad = [...byTicker.values()];
+
+      // Single batch quote request — one round trip for all tickers
+      const symbols   = toLoad.map(s => s.ticker).join(',');
+      const quoteUrl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
+      const res       = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
+      if (!res.ok) throw new Error(`quote ${res.status}`);
+      const json      = await res.json();
+      const quotes    = json.quoteResponse?.result || [];
+      const priceMap  = {};
+      for (const q of quotes) if (q.symbol && q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice;
+
+      const sorted = toLoad
+        .map(s => {
+          const cur = priceMap[s.ticker];
+          if (!cur) return null;
+          return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.pct - a.pct);
+
+      const tbody = document.getElementById('hofTbody');
+      if (tbody && sorted.length) {
+        tbody.innerHTML = sorted.map(s => {
+          const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+          const price  = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+          const color  = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+          return `<tr>
+            <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
+            <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+            <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+            <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+            <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+          </tr>`;
+        }).join('');
+      }
+    } else {
+      // localStorage legacy path
       const raw = localStorage.getItem(HOF_KEY);
       if (!raw) { if (btn) { btn.disabled = false; btn.textContent = 'LOAD RETURNS'; } return; }
-      const store = JSON.parse(raw);
-      const pool  = store.signals.slice().reverse().slice(0, 50);
+      const store   = JSON.parse(raw);
+      const pool    = store.signals.slice().reverse().slice(0, 50);
+      const symbols = [...new Set(pool.map(s => s.ticker))].join(',');
+      const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
+      const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
+      if (!res.ok) throw new Error(`quote ${res.status}`);
+      const json     = await res.json();
+      const quotes   = json.quoteResponse?.result || [];
+      const priceMap = {};
+      for (const q of quotes) if (q.symbol && q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice;
 
-      const withPct = await Promise.all(pool.map(async s => {
-        try {
-          const data = await fetchStockData(s.ticker, '1d|5d');
-          const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      const top20 = pool
+        .map(s => {
+          const cur = priceMap[s.ticker];
           if (!cur) return null;
           return { ...s, pct: (cur - s.price) / s.price * 100 };
-        } catch (_) { return null; }
-      }));
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.pct - a.pct)
+        .slice(0, 20);
 
-      const top20 = withPct.filter(Boolean).sort((a, b) => b.pct - a.pct).slice(0, 20);
       const tbody = document.getElementById('hofTbody');
       if (tbody && top20.length) {
         tbody.innerHTML = top20.map(s => {
           const lbl   = new Date(s.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
           const price = s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2);
           const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-          const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
           return `<tr>
             <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
             <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
             <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
             <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-            <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
+            <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
           </tr>`;
         }).join('');
       }
-    } catch (_) {}
+    }
+  } catch (e) {
+    console.error('[HOF] loadHofReturns failed:', e.message);
   }
 
   _hofReturnLoading = false;
@@ -821,33 +839,46 @@ async function loadAllHofReturns() {
   const btn = document.getElementById('allHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  // Keep oldest (first detection) per ticker
-  const byTicker = new Map();
-  for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
-  const results = await Promise.all([...byTicker.values()].map(async s => {
-    try {
-      const data = await fetchStockData(s.ticker, '1d|5d');
-      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-      if (!cur) return null;
-      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
-    } catch (_) { return null; }
-  }));
-  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
-  const tbody = document.getElementById('allHofTbody');
-  if (tbody && sorted.length) {
-    tbody.innerHTML = sorted.map(s => {
-      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-      const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
-      return `<tr>
-        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
-        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-        <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
-      </tr>`;
-    }).join('');
+  try {
+    const byTicker = new Map();
+    for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
+    const toLoad = [...byTicker.values()];
+
+    const symbols  = toLoad.map(s => s.ticker).join(',');
+    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
+    const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
+    if (!res.ok) throw new Error(`quote ${res.status}`);
+    const json     = await res.json();
+    const quotes   = json.quoteResponse?.result || [];
+    const priceMap = {};
+    for (const q of quotes) if (q.symbol && q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice;
+
+    const sorted = toLoad
+      .map(s => {
+        const cur = priceMap[s.ticker];
+        if (!cur) return null;
+        return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.pct - a.pct);
+
+    const tbody = document.getElementById('allHofTbody');
+    if (tbody && sorted.length) {
+      tbody.innerHTML = sorted.map(s => {
+        const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+        const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+        const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+        return `<tr>
+          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
+          <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+          <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+          <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+          <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    console.error('[ALL HOF] loadAllHofReturns failed:', e.message);
   }
 
   _allReturnLoading = false;
@@ -1180,34 +1211,46 @@ async function loadBullPenReturns() {
   const btn = document.getElementById('bpHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  const byTicker = new Map();
-  for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
-  const toLoad = [...byTicker.values()];
+  try {
+    const byTicker = new Map();
+    for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
+    const toLoad = [...byTicker.values()];
 
-  const results = await Promise.all(toLoad.map(async s => {
-    try {
-      const data = await fetchStockData(s.ticker, '1d|5d');
-      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-      if (!cur) return null;
-      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
-    } catch (_) { return null; }
-  }));
+    const symbols  = toLoad.map(s => s.ticker).join(',');
+    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
+    const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
+    if (!res.ok) throw new Error(`quote ${res.status}`);
+    const json     = await res.json();
+    const quotes   = json.quoteResponse?.result || [];
+    const priceMap = {};
+    for (const q of quotes) if (q.symbol && q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice;
 
-  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
-  const tbody  = document.getElementById('bpHofTbody');
-  if (tbody && sorted.length) {
-    tbody.innerHTML = sorted.map(s => {
-      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-      return `<tr>
-        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
-        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-        <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
-        <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
-      </tr>`;
-    }).join('');
+    const sorted = toLoad
+      .map(s => {
+        const cur = priceMap[s.ticker];
+        if (!cur) return null;
+        return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.pct - a.pct);
+
+    const tbody = document.getElementById('bpHofTbody');
+    if (tbody && sorted.length) {
+      tbody.innerHTML = sorted.map(s => {
+        const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+        const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+        const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+        return `<tr>
+          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
+          <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+          <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+          <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+          <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+        </tr>`;
+      }).join('');
+    }
+  } catch (e) {
+    console.error('[BP HOF] loadBullPenReturns failed:', e.message);
   }
 
   _bpReturnLoading = false;
