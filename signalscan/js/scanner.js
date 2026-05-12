@@ -197,12 +197,14 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn, hofSour
 
 function startScan() {
   return _runScanCore(SCAN_UNIVERSE, {
-    btnId: 'scanBtn',           progressId: 'scanProgress',   gridId:    'resultsGrid',
-    emptyId: 'emptyMsg',        headerId: 'resultsHeader',    foundMsgId:'foundMsg',
-    statusId: 'statusText',     countId: 'progressCount',     barId:     'progressBar',
+    btnId: 'scanBtn',           progressId: 'scanProgress',       gridId:    'scanResultsGrid',
+    emptyId: 'scanEmpty',       headerId: 'scanResultsHeader',    foundMsgId:'scanFoundMsg',
+    statusId: 'scanStatusText', countId: 'scanProgressCount',     barId:     'scanProgressBar',
     btnLabel: '🔍 SCAN AGAIN',
   }, null, null, null, 'scanner');
 }
+
+function runScanner() { return startScan(); }
 
 function runCustomScanner() {
   const tickers = window._watchlistTickers || [];
@@ -370,6 +372,8 @@ async function renderHoF() {
       if (btn) btn.style.display = 'block';
       _injectAdminHofAddForm();
       _renderHofAdminTable(records);
+      _hofReturnLoading = false;
+      loadHofReturns();
     } else {
       _hofAdminRecords = [];
       const uniqueCount = new Set(records.map(r => r.ticker)).size;
@@ -526,6 +530,18 @@ async function hofAdminInsert() {
   } catch (e) {
     setMsg(`Error: ${e.message}`, false);
   }
+}
+
+function getDailyRotation(pool, n) {
+  const seed = Math.floor(Date.now() / 86400000);
+  let s = seed;
+  const shuffled = [...pool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, n);
 }
 
 async function adminReScanToHof() {
@@ -749,6 +765,8 @@ async function renderAllHoF() {
     if (subtitleEl) subtitleEl.textContent = `${scannerCount} SCANNER · ${watchlistCount} WATCHLIST`;
     if (btn) btn.style.display = 'block';
     _renderHofAdminTable(records, 'allHofTbody');
+    _allReturnLoading = false;
+    loadAllHofReturns();
   } catch (e) {
     console.error('[ALL HOF] render error:', e.message);
     section.style.display = 'none';
@@ -1030,6 +1048,8 @@ async function renderBullPenHoF() {
       if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ALL ${records.length} SIGNALS`;
       if (btn) btn.style.display = 'block';
       _renderBullPenAdminTable(records);
+      _bpReturnLoading = false;
+      loadBullPenReturns();
     } else {
       _bpAdminRecords = [];
       if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HALL OF FAME';
@@ -1118,19 +1138,35 @@ async function loadBullPenReturns() {
   const btn = document.getElementById('bpHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  await Promise.all(_bpAdminRecords.slice(0, 50).map(async s => {
+  const byTicker = new Map();
+  for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
+  const toLoad = [...byTicker.values()];
+
+  const results = await Promise.all(toLoad.map(async s => {
     try {
       const data = await fetchStockData(s.ticker, '1d|5d');
       const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-      if (!cur) return;
-      const ret = (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100;
-      const el  = document.getElementById(`bpret-${s.ticker}-${new Date(s.detected_at).getTime()}`);
-      if (el) {
-        el.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(1)}%`;
-        el.style.color = ret >= 0 ? 'var(--accent)' : 'var(--accent2)';
-      }
-    } catch (_) {}
+      if (!cur) return null;
+      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+    } catch (_) { return null; }
   }));
+
+  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+  const tbody  = document.getElementById('bpHofTbody');
+  if (tbody && sorted.length) {
+    tbody.innerHTML = sorted.map(s => {
+      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+      </tr>`;
+    }).join('');
+  }
 
   _bpReturnLoading = false;
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }

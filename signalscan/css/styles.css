@@ -165,7 +165,7 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px; }
   #scanTimeframe { flex: 0 0 auto; }
 
   /* Hall of Fame — hide less important columns */
-  .hof-col-det, .hof-col-price { display: none; }
+  .hof-col-price { display: none; }
   #hofSection { padding: 16px !important; }
 }
 
