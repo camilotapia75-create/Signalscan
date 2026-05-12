@@ -116,7 +116,7 @@ async function quickAnalyzeForScan(ticker) {
   }
 }
 
-async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn) {
+async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn, hofSource) {
   const { btnId, progressId, gridId, emptyId, headerId, foundMsgId, statusId, countId, barId, btnLabel } = ids;
   const btn      = document.getElementById(btnId);
   const progress = document.getElementById(progressId);
@@ -154,6 +154,10 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn) {
       bulls.push(r);
       if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
       grid.insertAdjacentHTML('beforeend', renderScanCard(r));
+      // Record immediately — don't wait for end of scan in case browser closes
+      if (hofSource) {
+        (recordFn || hofRecord)([r], hofSource).catch(() => {});
+      }
     }
     if (i < total - 1) await new Promise(res => setTimeout(res, 400));
   }
@@ -197,7 +201,7 @@ function startScan() {
     emptyId: 'emptyMsg',        headerId: 'resultsHeader',    foundMsgId:'foundMsg',
     statusId: 'statusText',     countId: 'progressCount',     barId:     'progressBar',
     btnLabel: '🔍 SCAN AGAIN',
-  });
+  }, null, null, null, 'scanner');
 }
 
 function runCustomScanner() {
@@ -208,7 +212,7 @@ function runCustomScanner() {
     emptyId: 'customScanEmpty',   headerId: 'customScanHeader',     foundMsgId: 'customScanFoundMsg',
     statusId: 'customScanStatus', countId: 'customScanCount',       barId: 'customScanBar',
     btnLabel: '🔍 SCAN AGAIN',
-  }, null, (bulls) => hofRecord(bulls, 'watchlist'), null);
+  }, null, (bulls) => hofRecord(bulls, 'watchlist'), null, 'watchlist');
 }
 
 function renderScanCard(r) {
@@ -243,30 +247,77 @@ let _allHofAdminRecords = [];
 let _allRenderGen       = 0;
 let _allReturnLoading   = false;
 
-async function hofRecord(bulls, source = 'scanner') {
-  // Persist to Supabase via server endpoint (cross-device)
+const HOF_PENDING_KEY = 'signalscan_hof_pending';
+
+function _queueHofPending(signals) {
   try {
-    await fetch('/api/hof/record', {
+    const raw     = localStorage.getItem(HOF_PENDING_KEY);
+    const pending = raw ? JSON.parse(raw) : [];
+    for (const s of signals) {
+      const dup = pending.find(p => p.ticker === s.ticker && Date.now() - p.ts < 7 * 86400000);
+      if (!dup) pending.push({ ...s, ts: Date.now() });
+    }
+    localStorage.setItem(HOF_PENDING_KEY, JSON.stringify(pending.slice(-500)));
+  } catch (_) {}
+}
+
+async function _syncHofPending() {
+  try {
+    const raw = localStorage.getItem(HOF_PENDING_KEY);
+    if (!raw) return;
+    const pending = JSON.parse(raw);
+    if (!pending.length) return;
+    const signals = pending.map(p => ({ ticker: p.ticker, price: p.price, conviction: p.conviction, source: p.source || 'scanner' }));
+    const res = await fetch('/api/hof/record', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction, source })) }),
-      signal: AbortSignal.timeout(10000),
+      body: JSON.stringify({ signals }),
+      signal: AbortSignal.timeout(12000),
     });
-  } catch (e) {
-    console.error('[HOF] record failed:', e.message);
-  }
-  // Also persist locally for legacy/offline fallback
+    if (res.ok) {
+      localStorage.removeItem(HOF_PENDING_KEY);
+      console.log(`[HOF] synced ${pending.length} pending record(s)`);
+    }
+  } catch (_) {}
+}
+
+async function hofRecord(bulls, source = 'scanner') {
+  const signals = bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction, source }));
+
+  // Save to localStorage immediately so nothing is lost even if all retries fail
   try {
     const raw   = localStorage.getItem(HOF_KEY);
     const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
     const now   = Date.now();
     for (const b of bulls) {
       const dup = store.signals.find(s => s.ticker === b.ticker && now - s.ts < 7 * 86400000);
-      if (!dup) store.signals.push({ ticker: b.ticker, ts: now, price: b.price, conviction: b.conviction });
+      if (!dup) store.signals.push({ ticker: b.ticker, ts: now, price: b.price, conviction: b.conviction, source });
     }
     store.signals = store.signals.slice(-500);
     localStorage.setItem(HOF_KEY, JSON.stringify(store));
   } catch (_) {}
+
+  // Try Supabase up to 3 times with exponential backoff
+  const delays = [0, 2000, 5000];
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt]) await new Promise(r => setTimeout(r, delays[attempt]));
+    try {
+      const res = await fetch('/api/hof/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ signals }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (res.ok) return; // success — done
+      console.warn(`[HOF] record attempt ${attempt + 1} got HTTP ${res.status}`);
+    } catch (e) {
+      console.warn(`[HOF] record attempt ${attempt + 1} failed:`, e.message);
+    }
+  }
+
+  // All retries failed — queue for sync on next page load
+  console.error('[HOF] all retries failed — queuing for next sync');
+  _queueHofPending(signals);
 }
 
 async function renderHoF() {
@@ -1088,6 +1139,7 @@ async function loadBullPenReturns() {
 document.addEventListener('DOMContentLoaded', async () => {
   initTheme();
   await _migrateHofToSupabase();
+  _syncHofPending();
   renderHoF();
   renderBullPenHoF();
   renderAllHoF();
