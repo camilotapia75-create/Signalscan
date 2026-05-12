@@ -74,6 +74,32 @@ function getScanTimeframe() {
 
 // ── Scanner ───────────────────────────────────────────────────────────────────
 
+function computeIndicators(data) {
+  try {
+    const closes = data.closes.filter(Boolean);
+    const highs = data.highs.filter(Boolean);
+    const lows = data.lows.filter(Boolean);
+    const volumes = data.volumes.filter(Boolean);
+    const rsi = calcRSI(closes, 14);
+    const macd = calcMACD(closes);
+    const bb = calcBollinger(closes, 20, 2);
+    const stoch = calcStochastic(highs, lows, closes, 14, 3);
+    const atr = calcATR(highs, lows, closes, 14);
+    const obv = calcOBV(closes, volumes);
+    const e20 = calcEMA(closes, 20);
+    const e50 = calcEMA(closes, 50);
+    const ema20 = e20[e20.length - 1];
+    const ema50 = e50[e50.length - 1];
+    const lastClose = closes[closes.length - 1];
+    const avgVol = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    const volRatio = volumes[volumes.length - 1] / (avgVol || 1);
+    return { rsi, macd, bb, stoch, atr, obv, ema20, ema50, lastClose, volRatio };
+  } catch (e) {
+    console.error('[SCANNER] computeIndicators error:', e.message);
+    return null;
+  }
+}
+
 async function quickAnalyzeForScan(ticker) {
   try {
     const data = await fetchStockData(ticker, getScanTimeframe());
