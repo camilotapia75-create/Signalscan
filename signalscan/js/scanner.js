@@ -419,37 +419,18 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
   // Show tickers immediately so the table is never blank
   renderRows(initialView.map(r => ({ ...r, pct: null })));
 
-  // Fetch prices for ALL unique tickers so low-conviction high-gainers aren't excluded
+  // Fetch current prices for all unique tickers, compute % gain, sort by best
   try {
-    const symbols  = allUnique.map(r => r.ticker).join(',');
-    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
-    const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
-    if (!res.ok) throw new Error(`proxy ${res.status}`);
-    const json   = await res.json();
-    const quotes = json.quoteResponse?.result || [];
+    const withPct = await Promise.all(allUnique.map(async r => {
+      try {
+        const data = await fetchStockData(r.ticker, '1d|5d');
+        const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+        if (!cur) return null;
+        return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
+      } catch (_) { return null; }
+    }));
 
-    const prices = {};
-    for (const q of quotes) {
-      if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
-    }
-
-    // Compute % gain for ALL records — per ticker keep the best (highest) % gain entry
-    const withPct = records.map(r => {
-      const cur = prices[r.ticker];
-      if (!cur) return null;
-      return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
-    }).filter(Boolean);
-
-    const bestByTicker = new Map();
-    for (const r of withPct) {
-      const existing = bestByTicker.get(r.ticker);
-      if (!existing || r.pct > existing.pct) bestByTicker.set(r.ticker, r);
-    }
-
-    const top30 = [...bestByTicker.values()]
-      .sort((a, b) => b.pct - a.pct)
-      .slice(0, 30);
-
+    const top30 = withPct.filter(Boolean).sort((a, b) => b.pct - a.pct).slice(0, 30);
     renderRows(top30);
   } catch (e) {
     console.error('[HOF] price fetch failed:', e.message);
@@ -698,72 +679,51 @@ async function loadHofReturns() {
   const btn = document.getElementById('hofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  try {
-    if (_hofAdminRecords.length) {
-      // Keep oldest detection per ticker (records sorted DESC, so last overwrite = oldest)
-      const byTicker = new Map();
-      for (const r of _hofAdminRecords) byTicker.set(r.ticker, r);
-      const toLoad = [...byTicker.values()];
-
-      // Single batch quote request — one round trip for all tickers
-      const symbols   = toLoad.map(s => s.ticker).join(',');
-      const quoteUrl  = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
-      const res       = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
-      if (!res.ok) throw new Error(`quote ${res.status}`);
-      const json      = await res.json();
-      const quotes    = json.quoteResponse?.result || [];
-      const priceMap  = {};
-      for (const q of quotes) if (q.symbol && q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice;
-
-      const sorted = toLoad
-        .map(s => {
-          const cur = priceMap[s.ticker];
-          if (!cur) return null;
-          return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
-        })
-        .filter(Boolean)
-        .sort((a, b) => b.pct - a.pct);
-
-      const tbody = document.getElementById('hofTbody');
-      if (tbody && sorted.length) {
-        tbody.innerHTML = sorted.map(s => {
-          const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-          const price  = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-          const color  = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-          return `<tr>
-            <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
-            <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-            <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-            <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-            <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
-          </tr>`;
-        }).join('');
-      }
-    } else {
-      // localStorage legacy path
+  if (_hofAdminRecords.length) {
+    // Keep oldest (first detection) per ticker — overwrite gives oldest since records sorted DESC
+    const byTicker = new Map();
+    for (const r of _hofAdminRecords) byTicker.set(r.ticker, r);
+    const toLoad = [...byTicker.values()];
+    const results = await Promise.all(toLoad.map(async s => {
+      try {
+        const data = await fetchStockData(s.ticker, '1d|5d');
+        const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+        if (!cur) return null;
+        return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+      } catch (_) { return null; }
+    }));
+    const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+    const tbody = document.getElementById('hofTbody');
+    if (tbody && sorted.length) {
+      tbody.innerHTML = sorted.map(s => {
+        const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+        const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+        const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+        return `<tr>
+          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
+          <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+          <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+          <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+          <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+        </tr>`;
+      }).join('');
+    }
+  } else {
+    // localStorage legacy path
+    try {
       const raw = localStorage.getItem(HOF_KEY);
       if (!raw) { if (btn) { btn.disabled = false; btn.textContent = 'LOAD RETURNS'; } return; }
-      const store   = JSON.parse(raw);
-      const pool    = store.signals.slice().reverse().slice(0, 50);
-      const symbols = [...new Set(pool.map(s => s.ticker))].join(',');
-      const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
-      const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
-      if (!res.ok) throw new Error(`quote ${res.status}`);
-      const json     = await res.json();
-      const quotes   = json.quoteResponse?.result || [];
-      const priceMap = {};
-      for (const q of quotes) if (q.symbol && q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice;
-
-      const top20 = pool
-        .map(s => {
-          const cur = priceMap[s.ticker];
+      const store = JSON.parse(raw);
+      const pool  = store.signals.slice().reverse().slice(0, 50);
+      const withPct = await Promise.all(pool.map(async s => {
+        try {
+          const data = await fetchStockData(s.ticker, '1d|5d');
+          const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
           if (!cur) return null;
           return { ...s, pct: (cur - s.price) / s.price * 100 };
-        })
-        .filter(Boolean)
-        .sort((a, b) => b.pct - a.pct)
-        .slice(0, 20);
-
+        } catch (_) { return null; }
+      }));
+      const top20 = withPct.filter(Boolean).sort((a, b) => b.pct - a.pct).slice(0, 20);
       const tbody = document.getElementById('hofTbody');
       if (tbody && top20.length) {
         tbody.innerHTML = top20.map(s => {
@@ -779,9 +739,7 @@ async function loadHofReturns() {
           </tr>`;
         }).join('');
       }
-    }
-  } catch (e) {
-    console.error('[HOF] loadHofReturns failed:', e.message);
+    } catch (_) {}
   }
 
   _hofReturnLoading = false;
@@ -839,46 +797,31 @@ async function loadAllHofReturns() {
   const btn = document.getElementById('allHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  try {
-    const byTicker = new Map();
-    for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
-    const toLoad = [...byTicker.values()];
-
-    const symbols  = toLoad.map(s => s.ticker).join(',');
-    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
-    const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
-    if (!res.ok) throw new Error(`quote ${res.status}`);
-    const json     = await res.json();
-    const quotes   = json.quoteResponse?.result || [];
-    const priceMap = {};
-    for (const q of quotes) if (q.symbol && q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice;
-
-    const sorted = toLoad
-      .map(s => {
-        const cur = priceMap[s.ticker];
-        if (!cur) return null;
-        return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.pct - a.pct);
-
-    const tbody = document.getElementById('allHofTbody');
-    if (tbody && sorted.length) {
-      tbody.innerHTML = sorted.map(s => {
-        const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-        const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-        const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-        return `<tr>
-          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
-          <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-          <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-          <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-          <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
-        </tr>`;
-      }).join('');
-    }
-  } catch (e) {
-    console.error('[ALL HOF] loadAllHofReturns failed:', e.message);
+  const byTicker = new Map();
+  for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
+  const results = await Promise.all([...byTicker.values()].map(async s => {
+    try {
+      const data = await fetchStockData(s.ticker, '1d|5d');
+      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      if (!cur) return null;
+      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+    } catch (_) { return null; }
+  }));
+  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+  const tbody = document.getElementById('allHofTbody');
+  if (tbody && sorted.length) {
+    tbody.innerHTML = sorted.map(s => {
+      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+      </tr>`;
+    }).join('');
   }
 
   _allReturnLoading = false;
@@ -1211,46 +1154,32 @@ async function loadBullPenReturns() {
   const btn = document.getElementById('bpHofReturnBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
 
-  try {
-    const byTicker = new Map();
-    for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
-    const toLoad = [...byTicker.values()];
-
-    const symbols  = toLoad.map(s => s.ticker).join(',');
-    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
-    const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
-    if (!res.ok) throw new Error(`quote ${res.status}`);
-    const json     = await res.json();
-    const quotes   = json.quoteResponse?.result || [];
-    const priceMap = {};
-    for (const q of quotes) if (q.symbol && q.regularMarketPrice) priceMap[q.symbol] = q.regularMarketPrice;
-
-    const sorted = toLoad
-      .map(s => {
-        const cur = priceMap[s.ticker];
-        if (!cur) return null;
-        return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
-      })
-      .filter(Boolean)
-      .sort((a, b) => b.pct - a.pct);
-
-    const tbody = document.getElementById('bpHofTbody');
-    if (tbody && sorted.length) {
-      tbody.innerHTML = sorted.map(s => {
-        const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-        const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-        const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-        return `<tr>
-          <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
-          <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-          <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-          <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
-          <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
-        </tr>`;
-      }).join('');
-    }
-  } catch (e) {
-    console.error('[BP HOF] loadBullPenReturns failed:', e.message);
+  const byTicker = new Map();
+  for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
+  const toLoad = [...byTicker.values()];
+  const results = await Promise.all(toLoad.map(async s => {
+    try {
+      const data = await fetchStockData(s.ticker, '1d|5d');
+      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      if (!cur) return null;
+      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+    } catch (_) { return null; }
+  }));
+  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+  const tbody  = document.getElementById('bpHofTbody');
+  if (tbody && sorted.length) {
+    tbody.innerHTML = sorted.map(s => {
+      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+      </tr>`;
+    }).join('');
   }
 
   _bpReturnLoading = false;
