@@ -1,35 +1,48 @@
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+const BROWSER_HEADERS = {
+  'User-Agent': UA,
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'DNT': '1',
+  'Upgrade-Insecure-Requests': '1',
+};
 
 // Module-level cache — persists across invocations within a warm Vercel instance
 let _crumb = '';
 let _cookie = '';
 let _crumbAt = 0;
-const CRUMB_TTL = 4 * 60 * 1000; // 4 minutes
+const CRUMB_TTL = 8 * 60 * 1000; // 8 minutes
 
 async function refreshCrumb() {
   try {
+    // Step 1: Get Yahoo Finance cookies (follow any consent redirects)
     const homeRes = await fetch('https://finance.yahoo.com/', {
-      headers: { 'User-Agent': UA, 'Accept': 'text/html,application/xhtml+xml' },
+      headers: BROWSER_HEADERS,
       redirect: 'follow',
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(10000),
     });
-    // Collect session cookies
     const rawCookies = homeRes.headers.getSetCookie
       ? homeRes.headers.getSetCookie()
       : (homeRes.headers.get('set-cookie') || '').split(/,(?=[^ ])/);
     _cookie = rawCookies.map(c => c.split(';')[0]).filter(Boolean).join('; ');
 
+    if (!_cookie) return;
+
+    // Step 2: Get crumb using session cookies
     const crumbRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
-      headers: { 'User-Agent': UA, 'Cookie': _cookie },
-      signal: AbortSignal.timeout(5000),
+      headers: { 'User-Agent': UA, 'Cookie': _cookie, 'Referer': 'https://finance.yahoo.com/' },
+      signal: AbortSignal.timeout(8000),
     });
+    if (!crumbRes.ok) return;
     const text = await crumbRes.text();
-    if (text && text.length < 20 && !text.includes('<')) {
+    if (text && text.length < 20 && !text.includes('<') && !text.includes('{')) {
       _crumb = text.trim();
       _crumbAt = Date.now();
     }
   } catch (_) {
-    // Crumb fetch failed — proceed without it (unauthenticated fallback)
+    // Crumb fetch failed — proceed without it
   }
 }
 
