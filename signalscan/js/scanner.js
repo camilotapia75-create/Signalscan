@@ -154,7 +154,6 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn, hofSour
       bulls.push(r);
       if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
       grid.insertAdjacentHTML('beforeend', renderScanCard(r));
-      if (typeof triggerPerfectSignalEffect === 'function') triggerPerfectSignalEffect(true);
       // Record immediately — don't wait for end of scan in case browser closes
       if (hofSource) {
         (recordFn || hofRecord)([r], hofSource).catch(() => {});
