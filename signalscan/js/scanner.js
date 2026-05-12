@@ -142,28 +142,21 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn, hofSour
   if (countEl) countEl.textContent = `0 / ${total}`;
   console.log(`[SCANNER] Starting scan of ${total} tickers using ${getScanTimeframe()}`);
 
-  // Process 4 tickers in parallel per batch — ~8x faster than serial 400ms per ticker.
-  // The Vercel proxy caches each ticker for 5 min, so the first user warms the cache
-  // and all subsequent users get near-instant CDN responses regardless of batch size.
-  const BATCH = 4;
-  for (let i = 0; i < total; i += BATCH) {
-    const slice = tickers.slice(i, Math.min(i + BATCH, total));
-    const results = await Promise.all(slice.map(t => (analyzeFn || quickAnalyzeForScan)(t)));
-    for (let j = 0; j < results.length; j++) {
-      done++;
-      const r = results[j];
-      if (statusEl) statusEl.textContent = `Scanning ${slice[j]}...`;
-      if (fill)    fill.style.width    = `${Math.round(done / total * 100)}%`;
-      if (countEl) countEl.textContent = `${done} / ${total}`;
-      if (r && r._networkFail) { failed++; }
-      else if (r && r.isGoldenBull) {
-        bulls.push(r);
-        if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
-        grid.insertAdjacentHTML('beforeend', renderScanCard(r));
-        if (hofSource) (recordFn || hofRecord)([r], hofSource).catch(() => {});
-      }
+  for (let i = 0; i < total; i++) {
+    const ticker = tickers[i];
+    if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
+    const r = await (analyzeFn || quickAnalyzeForScan)(ticker);
+    done++;
+    if (fill)    fill.style.width    = `${Math.round(done / total * 100)}%`;
+    if (countEl) countEl.textContent = `${done} / ${total}`;
+    if (r && r._networkFail) { failed++; }
+    else if (r && r.isGoldenBull) {
+      bulls.push(r);
+      if (foundMsg) foundMsg.textContent = `Found ${bulls.length} golden bull${bulls.length !== 1 ? 's' : ''} so far...`;
+      grid.insertAdjacentHTML('beforeend', renderScanCard(r));
+      if (hofSource) (recordFn || hofRecord)([r], hofSource).catch(() => {});
     }
-    if (i + BATCH < total) await new Promise(res => setTimeout(res, 200));
+    if (i < total - 1) await new Promise(res => setTimeout(res, 100));
   }
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
