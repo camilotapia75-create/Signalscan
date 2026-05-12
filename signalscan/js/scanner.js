@@ -503,29 +503,71 @@ async function hofAdminInsert() {
   const dateStr    = document.getElementById('aHofDate')?.value;
   const source     = document.getElementById('aHofSource')?.value || 'manual';
   const msgEl      = document.getElementById('aHofMsg');
-  const setMsg     = (txt, ok) => { if (msgEl) { msgEl.style.color = ok ? 'var(--accent)' : 'var(--accent2)'; msgEl.textContent = txt; } };
+  const setMsg = (txt, ok) => {
+    if (msgEl) {
+      msgEl.style.color      = ok ? 'var(--accent)' : 'var(--accent2)';
+      msgEl.style.fontSize   = '12px';
+      msgEl.style.fontWeight = '600';
+      msgEl.textContent      = txt;
+    }
+    console[ok ? 'log' : 'error']('[ADMIN INSERT]', txt);
+  };
 
   if (!ticker || !/^[A-Z0-9.\-]{1,12}$/.test(ticker)) { setMsg('Invalid ticker.', false); return; }
-  if (isNaN(price) || price <= 0) { setMsg('Invalid price.', false); return; }
+  if (isNaN(price) || price <= 0)                        { setMsg('Invalid price.', false); return; }
   if (isNaN(conviction) || conviction < 0 || conviction > 100) { setMsg('Invalid conviction (0–100).', false); return; }
 
   setMsg('Inserting…', true);
+
+  const allowedSources = ['scanner', 'watchlist', 'manual'];
+  const record = {
+    ticker,
+    signal_price: price,
+    conviction:   Math.round(conviction),
+    source:       allowedSources.includes(source) ? source : 'manual',
+  };
+  if (dateStr) {
+    const d = new Date(dateStr);
+    if (!isNaN(d.getTime())) record.detected_at = d.toISOString();
+  }
+
   try {
+    // ── Path 1: server-side API (uses service role key, bypasses RLS) ──────────
     const session = (await getSupabase().auth.getSession()).data?.session;
     const token   = session?.access_token;
-    if (!token) { setMsg('Not authenticated.', false); return; }
 
-    const body = { ticker, price, conviction, source };
-    if (dateStr) body.detectedAt = dateStr;
+    if (token) {
+      try {
+        const res = await fetch('/api/hof/admin-insert', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body:    JSON.stringify({ ticker, price, conviction: record.conviction, source: record.source,
+                                    ...(record.detected_at ? { detectedAt: dateStr } : {}) }),
+          signal:  AbortSignal.timeout(15000),
+        });
+        if (res.ok) {
+          setMsg(`✓ ${ticker} added to HOF.`, true);
+          ['aHofTicker','aHofPrice','aHofConviction','aHofDate'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+          });
+          setTimeout(() => renderHoF(), 800);
+          return;
+        }
+        const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        console.warn('[ADMIN INSERT] API path failed:', errData.error, '— trying direct Supabase');
+      } catch (apiErr) {
+        console.warn('[ADMIN INSERT] API path threw:', apiErr.message, '— trying direct Supabase');
+      }
+    }
 
-    const res = await fetch('/api/hof/admin-insert', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) { const e = await res.json().catch(() => ({})); setMsg(`Error: ${e.error || res.status}`, false); return; }
+    // ── Path 2: direct Supabase client (uses user JWT, requires RLS insert policy) ─
+    const { error } = await getSupabase().from('golden_bull_hof').insert([record]);
+    if (error) throw new Error(`RLS/DB: ${error.message}`);
+
     setMsg(`✓ ${ticker} added to HOF.`, true);
-    ['aHofTicker','aHofPrice','aHofConviction','aHofDate'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['aHofTicker','aHofPrice','aHofConviction','aHofDate'].forEach(id => {
+      const el = document.getElementById(id); if (el) el.value = '';
+    });
     setTimeout(() => renderHoF(), 800);
   } catch (e) {
     setMsg(`Error: ${e.message}`, false);

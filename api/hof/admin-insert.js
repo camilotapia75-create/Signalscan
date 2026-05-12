@@ -1,6 +1,7 @@
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ADMIN_EMAIL  = 'camilotapia75@gmail.com';
+const SUPABASE_URL  = process.env.SUPABASE_URL  || 'https://bhykfnuljzzimzmdjcia.supabase.co';
+const SUPABASE_SVC  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoeWtmbnVsanp6aW16bWRqY2lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0OTU0NDcsImV4cCI6MjA5MzA3MTQ0N30.Bl1Bigqc6iD8Pi1OTaMPNhRnrP6l4-vzcDoAo_acOUE';
+const ADMIN_EMAIL   = 'camilotapia75@gmail.com';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -8,15 +9,18 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).end();
 
-  // Verify caller is admin via Supabase JWT
+  // Verify caller is admin via Supabase JWT (uses anon key so no secret env var needed)
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing auth' });
 
   const userRes = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: { apikey: SUPABASE_SVC, Authorization: authHeader },
-    signal: AbortSignal.timeout(5000),
-  }).catch(() => null);
-  if (!userRes?.ok) return res.status(401).json({ error: 'Invalid token' });
+    headers: { apikey: SUPABASE_ANON, Authorization: authHeader },
+    signal: AbortSignal.timeout(8000),
+  }).catch((e) => { console.error('[admin-insert] auth fetch error:', e.message); return null; });
+  if (!userRes?.ok) {
+    console.error('[admin-insert] auth check failed, status:', userRes?.status);
+    return res.status(401).json({ error: 'Invalid token' });
+  }
   const user = await userRes.json();
   if (user.email !== ADMIN_EMAIL) return res.status(403).json({ error: 'Forbidden' });
 
@@ -42,20 +46,26 @@ export default async function handler(req, res) {
     if (!isNaN(d.getTime())) record.detected_at = d.toISOString();
   }
 
+  // Use service role key if available (bypasses RLS); fall back to user JWT (needs RLS policy)
+  const insertKey  = SUPABASE_SVC || SUPABASE_ANON;
+  const insertAuth = SUPABASE_SVC ? `Bearer ${SUPABASE_SVC}` : authHeader;
+
   const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/golden_bull_hof`, {
     method: 'POST',
     headers: {
-      apikey: SUPABASE_SVC,
-      Authorization: `Bearer ${SUPABASE_SVC}`,
-      'Content-Type': 'application/json',
+      apikey:          insertKey,
+      Authorization:   insertAuth,
+      'Content-Type':  'application/json',
+      'Prefer':        'return=minimal',
     },
     body: JSON.stringify([record]),
     signal: AbortSignal.timeout(8000),
   });
 
   if (!insertRes.ok) {
-    console.error('[HOF admin-insert] error:', await insertRes.text());
-    return res.status(500).json({ error: 'Insert failed' });
+    const errText = await insertRes.text();
+    console.error('[HOF admin-insert] insert failed:', insertRes.status, errText);
+    return res.status(500).json({ error: `Insert failed: ${insertRes.status}` });
   }
 
   return res.status(200).json({ inserted: 1, record });
