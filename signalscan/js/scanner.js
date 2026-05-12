@@ -156,7 +156,7 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn, hofSour
       grid.insertAdjacentHTML('beforeend', renderScanCard(r));
       if (hofSource) (recordFn || hofRecord)([r], hofSource).catch(() => {});
     }
-    if (i < total - 1) await new Promise(res => setTimeout(res, 100));
+    if (i < total - 1) await new Promise(res => setTimeout(res, 400));
   }
 
   console.log(`[SCANNER] Done. ${bulls.length} golden bulls found. ${failed} failed.`);
