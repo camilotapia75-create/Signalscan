@@ -166,6 +166,7 @@
         <div style="display:flex;gap:0;border:1px solid var(--border);">
           <button id="scanTabOriginal" onclick="switchScanTab('original')" style="background:var(--gold);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🐂 ORIGINAL</button>
           <button id="scanTabBullpen"  onclick="switchScanTab('bullpen')"  style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🧪 BULL PEN</button>
+          <button id="scanTabStrict"   onclick="switchScanTab('strict')"   style="display:none;background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🎯 STRICT</button>
         </div>
         <select id="scanTimeframe" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;outline:none;">
           <option value="1wk|1y">1Y WEEKLY</option>
@@ -173,6 +174,7 @@
         </select>
         <button class="scan-btn" id="scanBtn" onclick="runScanner()">🔍 SCAN MARKET</button>
         <button class="scan-btn" id="bpScanBtn" onclick="runBullPenScanner()" style="display:none;background:rgba(255,140,80,0.12);border:1px solid rgba(255,140,80,0.4);color:#ff9055;">🧪 SCAN BULL PEN</button>
+        <button class="scan-btn" id="strictScanBtn" onclick="runStrictScanner()" style="display:none;background:rgba(100,200,255,0.10);border:1px solid rgba(100,200,255,0.4);color:#64c8ff;">🎯 SCAN STRICT</button>
       </div>
     </div>
 
@@ -206,6 +208,25 @@
       <div id="bpEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
         <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🧪</div>
         <div style="font-size:12px;color:var(--muted);line-height:1.8;">No Bull Pen signals detected in current conditions.</div>
+      </div>
+    </div>
+  </div>
+
+    <!-- Strict scanner panel (admin only) -->
+    <div id="scanPanelStrict" style="display:none;">
+      <div style="background:rgba(100,200,255,0.06);border:1px solid rgba(100,200,255,0.22);padding:11px 16px;margin-bottom:20px;font-size:10px;color:rgba(120,210,255,0.9);letter-spacing:0.8px;line-height:1.8;">
+        🎯 STRICT MODE — Full EMA stack (close &gt; EMA20 &gt; EMA50) · RSI 50–70 bull zone · MACD positive · Outperforms SPY 3-month · Market regime gate (SPY above EMA50) · Score thresholds 0.35 / 0.40 · Quality large-cap universe only. Admin-only experimental engine — separate HOF for performance comparison.
+      </div>
+      <div id="strictProgress" style="display:none;margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="strictStatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="strictProgressCount">0 / 0</span></div>
+        <div class="scan-progress-bg"><div class="scan-progress-fill" id="strictProgressBar" style="background:linear-gradient(90deg,#3a8fbf,#64c8ff);"></div></div>
+        <div style="font-size:10px;color:#64c8ff;margin-top:6px;letter-spacing:0.5px;min-height:14px;" id="strictFoundMsg"></div>
+      </div>
+      <div id="strictResultsHeader" style="display:none;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;"></div>
+      <div id="strictResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+      <div id="strictEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
+        <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🎯</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.8;">No signals passed strict criteria in current conditions.</div>
       </div>
     </div>
   </div>
@@ -304,6 +325,27 @@
     <button id="bpHofReturnBtn" onclick="loadBullPenReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(255,140,80,0.3);color:rgba(255,150,80,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#ff9055';this.style.color='#ff9055'" onmouseout="this.style.borderColor='rgba(255,140,80,0.3)';this.style.color='rgba(255,150,80,0.6)'">LOAD RETURNS</button>
   </div>
 
+  <!-- ── Bull Pen STRICT Hall of Fame (admin only) ────────────────────────── -->
+  <div id="strictHofSection" style="display:none;padding:32px;border-top:1px solid rgba(100,200,255,0.3);">
+    <div id="strictHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#64c8ff;">🎯 BULL PEN STRICT — HALL OF FAME</div>
+    <div id="strictHofSubtitle" style="font-size:10px;color:rgba(100,200,255,0.7);letter-spacing:1px;margin-bottom:20px;">STRICT ENGINE · 0 TICKERS DETECTED</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid rgba(100,200,255,0.25);">
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
+            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">RETURN</th>
+          </tr>
+        </thead>
+        <tbody id="strictHofTbody"></tbody>
+      </table>
+    </div>
+    <button id="strictHofReturnBtn" onclick="loadStrictReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(100,200,255,0.3);color:rgba(100,200,255,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#64c8ff';this.style.color='#64c8ff'" onmouseout="this.style.borderColor='rgba(100,200,255,0.3)';this.style.color='rgba(100,200,255,0.6)'">LOAD RETURNS</button>
+  </div>
+
   <!-- ── Combined HoF (Scanner + Watchlist) ─────────────────────────────────── -->
   <div id="allHofSection" style="display:none;padding:32px;border-top:1px solid rgba(77,159,255,0.3);">
     <div id="allHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#4d9fff;">⚡ COMBINED HOF — SCANNER + WATCHLIST</div>
@@ -360,12 +402,12 @@
 <button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle light/dark mode" style="position:fixed;bottom:20px;right:20px;width:38px;height:38px;border-radius:50%;background:var(--surface);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;z-index:999;display:flex;align-items:center;justify-content:center;transition:border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">🌙</button>
 
 <script src="js/config.js?v=32"></script>
-<script src="js/calc.js?v=42"></script>
-<script src="js/analysis.js?v=42"></script>
-<script src="js/scanner.js?v=42"></script>
-<script src="js/app.js?v=42"></script>
-<script src="js/auth.js?v=42"></script>
-<script src="js/watchlist.js?v=42"></script>
+<script src="js/calc.js?v=43"></script>
+<script src="js/analysis.js?v=43"></script>
+<script src="js/scanner.js?v=43"></script>
+<script src="js/app.js?v=43"></script>
+<script src="js/auth.js?v=43"></script>
+<script src="js/watchlist.js?v=43"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
 </html>

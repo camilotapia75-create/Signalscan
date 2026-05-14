@@ -905,22 +905,31 @@ let _activeScanTab   = 'original';
 
 function switchScanTab(tab) {
   _activeScanTab = tab;
-  const isOrig = tab === 'original';
 
-  document.getElementById('scanPanelOriginal').style.display = isOrig ? '' : 'none';
-  document.getElementById('scanPanelBullpen').style.display  = isOrig ? 'none' : '';
-  document.getElementById('scanBtn').style.display   = isOrig ? '' : 'none';
-  document.getElementById('bpScanBtn').style.display = isOrig ? 'none' : '';
+  document.getElementById('scanPanelOriginal').style.display = tab === 'original' ? '' : 'none';
+  document.getElementById('scanPanelBullpen').style.display  = tab === 'bullpen'  ? '' : 'none';
+  const strictPanel = document.getElementById('scanPanelStrict');
+  if (strictPanel) strictPanel.style.display = tab === 'strict' ? '' : 'none';
 
-  const origTab = document.getElementById('scanTabOriginal');
-  const bpTab   = document.getElementById('scanTabBullpen');
+  document.getElementById('scanBtn').style.display      = tab === 'original' ? '' : 'none';
+  document.getElementById('bpScanBtn').style.display    = tab === 'bullpen'  ? '' : 'none';
+  const strictBtn = document.getElementById('strictScanBtn');
+  if (strictBtn) strictBtn.style.display = tab === 'strict' ? '' : 'none';
+
+  const origTab   = document.getElementById('scanTabOriginal');
+  const bpTab     = document.getElementById('scanTabBullpen');
+  const strictTab = document.getElementById('scanTabStrict');
   if (origTab) {
-    origTab.style.background = isOrig ? 'var(--gold)' : 'transparent';
-    origTab.style.color      = isOrig ? '#000' : 'var(--muted)';
+    origTab.style.background = tab === 'original' ? 'var(--gold)' : 'transparent';
+    origTab.style.color      = tab === 'original' ? '#000' : 'var(--muted)';
   }
   if (bpTab) {
-    bpTab.style.background = isOrig ? 'transparent' : 'rgba(255,140,80,0.18)';
-    bpTab.style.color      = isOrig ? 'var(--muted)' : '#ff9055';
+    bpTab.style.background = tab === 'bullpen' ? 'rgba(255,140,80,0.18)' : 'transparent';
+    bpTab.style.color      = tab === 'bullpen' ? '#ff9055' : 'var(--muted)';
+  }
+  if (strictTab) {
+    strictTab.style.background = tab === 'strict' ? 'rgba(100,200,255,0.15)' : 'transparent';
+    strictTab.style.color      = tab === 'strict' ? '#64c8ff' : 'var(--muted)';
   }
 }
 
@@ -1202,6 +1211,217 @@ async function loadBullPenReturns() {
   }
 
   _bpReturnLoading = false;
+  if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
+}
+
+// ── Bull Pen STRICT Scanner ───────────────────────────────────────────────────
+// Admin-only. Hard filters: full EMA stack, RSI bull zone, MACD+, relative
+// strength > SPY, market regime gate, higher score thresholds, curated universe.
+
+const STRICT_UNIVERSE = [
+  'AAPL','MSFT','NVDA','AMZN','META','GOOGL','AVGO',
+  'CRM','ADBE','AMD','QCOM','NOW','PANW','CRWD','ZS','NET','DDOG','FTNT',
+  'V','MA','JPM','GS','MS','BLK','SPGI','MCO','AXP',
+  'UNH','LLY','ABBV','TMO','DHR','ISRG','AMGN',
+  'HD','COST','WMT','MCD','CMG','NKE',
+  'CAT','HON','LMT','RTX','GE',
+  'XOM','CVX','NEE','PGR','CB',
+];
+
+let _strictAdminRecords  = [];
+let _strictRenderGen     = 0;
+let _strictReturnLoading = false;
+
+async function quickAnalyzeForStrict(ticker, spyReturn3m, spyAboveEma50) {
+  try {
+    if (!spyAboveEma50) return null; // market regime gate
+
+    const data = await fetchStockData(ticker, '1d|1y');
+    if (!data || !data.closes) return { _networkFail: true };
+    const closes = data.closes.filter(Boolean);
+    if (closes.length < 65) return null;
+
+    const indData = computeIndicators(data);
+    if (!indData) return null;
+
+    const { rsi, macd, ema20, ema50, lastClose } = indData;
+
+    if (lastClose < 15)            return null; // no sub-$15 stocks
+    if (lastClose < ema20)         return null; // price below EMA20
+    if (ema20 < ema50)             return null; // EMA20 below EMA50 — not stacked
+    if (rsi < 50 || rsi > 70)      return null; // outside bull zone
+    if (macd.histogram <= 0)       return null; // MACD must be positive
+
+    // Relative strength: stock must outperform SPY over past 3 months (~65 trading days)
+    if (spyReturn3m !== null) {
+      const stockReturn3m = (lastClose - closes[closes.length - 65]) / closes[closes.length - 65] * 100;
+      if (stockReturn3m < spyReturn3m) return null;
+    }
+
+    // Base-building: recent 10-day range should not be wider than 2× the prior 20-day range
+    const recent = closes.slice(-10);
+    const prior  = closes.slice(-30, -10);
+    if (prior.length >= 10) {
+      const recentRange = (Math.max(...recent) - Math.min(...recent)) / lastClose;
+      const priorRange  = (Math.max(...prior)  - Math.min(...prior))  / prior[prior.length - 1];
+      if (recentRange > priorRange * 2) return null; // explosive/panic move, not a base
+    }
+
+    const highs = data.highs.filter(Boolean);
+    const lows  = data.lows.filter(Boolean);
+    const sr   = findSupportResistance(highs, lows, closes);
+    const pa   = analyzePriceAction(data);
+    const rev  = generateAnalysis(ticker, indData, sr, pa);
+    const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
+
+    // Higher score thresholds than original (0.2/0.25) or bull pen (0.2/0.25)
+    if (rev.score <= 0.35 || cont.score <= 0.40) return null;
+
+    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (rev.score + cont.score - 0.75) / 0.75 * 50)));
+    const topSignal  = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
+    const spark      = closes.slice(-30);
+    const yearHigh   = Math.max(...highs);
+    const nearestRes = sr.resistance.filter(r => r.price > lastClose)[0];
+    const estimatedUpside = nearestRes
+      ? (nearestRes.price - lastClose) / lastClose * 100
+      : Math.max(0, (yearHigh - lastClose) / lastClose * 100);
+
+    console.log(`[STRICT] ${ticker}: rev=${rev.score.toFixed(2)} cont=${cont.score.toFixed(2)} rsi=${rsi.toFixed(1)} => 🎯 STRICT BULL`);
+    return { ticker, price: lastClose, isGoldenBull: true, conviction, topSignal, revScore: rev.score, contScore: cont.score, spark, estimatedUpside };
+  } catch (e) {
+    console.error(`[STRICT] ${ticker}: failed —`, e.message);
+    return { _networkFail: true };
+  }
+}
+
+async function runStrictScanner() {
+  let spyReturn3m    = null;
+  let spyAboveEma50  = false;
+  try {
+    const spyData = await fetchStockData('SPY', '1d|1y');
+    if (spyData?.closes) {
+      const sc = spyData.closes.filter(Boolean);
+      if (sc.length >= 65) {
+        spyReturn3m   = (sc[sc.length - 1] - sc[sc.length - 65]) / sc[sc.length - 65] * 100;
+      }
+      const spyEma50 = calcEMA(sc, 50);
+      spyAboveEma50  = sc[sc.length - 1] > spyEma50[spyEma50.length - 1];
+      console.log(`[STRICT] SPY: 3m=${spyReturn3m?.toFixed(2)}% aboveEMA50=${spyAboveEma50}`);
+    }
+  } catch (_) {}
+
+  if (!spyAboveEma50) {
+    const el = document.getElementById('strictStatusText');
+    if (el) el.textContent = 'Market regime: SPY below EMA50 — strict signals suppressed.';
+  }
+
+  return _runScanCore(STRICT_UNIVERSE, {
+    btnId:     'strictScanBtn',      progressId: 'strictProgress',      gridId:    'strictResultsGrid',
+    emptyId:   'strictEmpty',        headerId:   'strictResultsHeader',  foundMsgId:'strictFoundMsg',
+    statusId:  'strictStatusText',   countId:    'strictProgressCount',  barId:     'strictProgressBar',
+    btnLabel:  '🎯 SCAN AGAIN',
+  }, (t) => quickAnalyzeForStrict(t, spyReturn3m, spyAboveEma50), hofRecordStrict, renderStrictHoF, 'strict');
+}
+
+async function hofRecordStrict(bulls) {
+  try {
+    await fetch('/api/strict/record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (e) {
+    console.error('[STRICT HOF] record failed:', e.message);
+  }
+}
+
+async function renderStrictHoF() {
+  const section = document.getElementById('strictHofSection');
+  if (!section) return;
+  const gen = ++_strictRenderGen;
+
+  try {
+    const sb = getSupabase();
+    const { data: records, error } = await sb
+      .from('bull_pen_strict_hof')
+      .select('ticker,detected_at,signal_price,conviction')
+      .order('detected_at', { ascending: false })
+      .limit(1000);
+
+    if (gen !== _strictRenderGen) return;
+    if (error) throw error;
+    if (!records?.length) { section.style.display = 'none'; return; }
+
+    section.style.display = 'block';
+    _strictAdminRecords   = records;
+
+    const titleEl    = document.getElementById('strictHofTitle');
+    const subtitleEl = document.getElementById('strictHofSubtitle');
+    const uniqueCount = new Set(records.map(r => r.ticker)).size;
+    if (titleEl)    titleEl.textContent    = '🎯 BULL PEN STRICT — HALL OF FAME';
+    if (subtitleEl) subtitleEl.textContent = `STRICT ENGINE · ${uniqueCount} TICKERS DETECTED`;
+
+    _renderStrictAdminTable(records);
+    const btn = document.getElementById('strictHofReturnBtn');
+    if (btn) btn.style.display = 'block';
+  } catch (e) {
+    console.error('[STRICT HOF] renderStrictHoF error:', e.message);
+  }
+}
+
+function _renderStrictAdminTable(records) {
+  const tbody = document.getElementById('strictHofTbody');
+  if (!tbody) return;
+  tbody.innerHTML = records.map(s => {
+    const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+    const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+    return `<tr>
+      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#64c8ff;padding:7px 8px;">${s.ticker}</td>
+      <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+      <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+      <td style="padding:7px 8px;color:#64c8ff;">${s.conviction}%</td>
+      <td id="sret-${s.ticker}-${new Date(s.detected_at).getTime()}" style="padding:7px 8px;color:var(--muted);">—</td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadStrictReturns() {
+  if (_strictReturnLoading) return;
+  _strictReturnLoading = true;
+  const btn = document.getElementById('strictHofReturnBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
+
+  const byTicker = new Map();
+  for (const r of _strictAdminRecords) byTicker.set(r.ticker, r);
+  const toLoad = [...byTicker.values()];
+
+  const results = await Promise.all(toLoad.map(async s => {
+    try {
+      const data = await fetchStockData(s.ticker, '1d|5d');
+      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      if (!cur) return null;
+      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+    } catch (_) { return null; }
+  }));
+  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+  const tbody  = document.getElementById('strictHofTbody');
+  if (tbody && sorted.length) {
+    tbody.innerHTML = sorted.map(s => {
+      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#64c8ff;padding:7px 8px;">${s.ticker}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:#64c8ff;">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+      </tr>`;
+    }).join('');
+  }
+
+  _strictReturnLoading = false;
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
