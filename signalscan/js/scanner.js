@@ -1219,13 +1219,24 @@ async function loadBullPenReturns() {
 // strength > SPY, market regime gate, higher score thresholds, curated universe.
 
 const STRICT_UNIVERSE = [
+  // Mega-cap tech
   'AAPL','MSFT','NVDA','AMZN','META','GOOGL','AVGO',
-  'CRM','ADBE','AMD','QCOM','NOW','PANW','CRWD','ZS','NET','DDOG','FTNT',
-  'V','MA','JPM','GS','MS','BLK','SPGI','MCO','AXP',
-  'UNH','LLY','ABBV','TMO','DHR','ISRG','AMGN',
-  'HD','COST','WMT','MCD','CMG','NKE',
-  'CAT','HON','LMT','RTX','GE',
-  'XOM','CVX','NEE','PGR','CB',
+  // Software / internet
+  'CRM','ADBE','NOW','PANW','CRWD','ZS','NET','DDOG','FTNT','NFLX','ORCL','INTU','ACN','UBER','PYPL',
+  // Semiconductors
+  'AMD','QCOM','AMAT','LRCX','KLAC','ASML','TSM','MU','MRVL','TXN',
+  // Financials
+  'V','MA','JPM','GS','MS','BLK','SPGI','MCO','AXP','CME','ICE',
+  // Healthcare
+  'UNH','LLY','ABBV','TMO','DHR','ISRG','AMGN','REGN','VRTX','SYK','MRK',
+  // Consumer
+  'HD','LOW','COST','WMT','MCD','CMG','NKE','TJX','BKNG',
+  // Industrial / defense
+  'CAT','HON','LMT','RTX','GE','ETN',
+  // Energy
+  'XOM','CVX','COP',
+  // Infrastructure / other quality
+  'NEE','PGR','CB','EQIX','BRK-B',
 ];
 
 let _strictAdminRecords  = [];
