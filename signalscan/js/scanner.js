@@ -462,6 +462,28 @@ function _adminSrcBadge(source) {
   return ''; // scanner (default) and legacy show no badge
 }
 
+async function hofAdminDelete(table, ticker) {
+  if (!confirm(`Remove ALL ${ticker} entries from ${table}?`)) return;
+  const session = (await getSupabase().auth.getSession()).data?.session;
+  if (!session?.access_token) { alert('Not authenticated.'); return; }
+  try {
+    const res = await fetch('/api/hof/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ table, ticker }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(`Delete failed: ${data.error}`); return; }
+    // Refresh the relevant HOF
+    if (table === 'golden_bull_hof')       renderHoF();
+    else if (table === 'bull_pen_hof')     renderBullPenHoF();
+    else if (table === 'bull_pen_strict_hof') renderStrictHoF();
+  } catch (e) {
+    alert(`Delete error: ${e.message}`);
+  }
+}
+
 function _injectAdminHofAddForm() {
   const section = document.getElementById('hofSection');
   if (!section || document.getElementById('adminHofAddForm')) return;
@@ -652,6 +674,7 @@ function _renderHofAdminTable(records, tbodyId = 'hofTbody') {
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
       <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
       <td style="padding:7px 8px;color:var(--muted);">—</td>
+      <td style="padding:4px 8px;"><button onclick="hofAdminDelete('golden_bull_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
     </tr>`;
   }).join('');
 }
@@ -1172,6 +1195,7 @@ function _renderBullPenAdminTable(records) {
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
       <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
       <td id="bpret-${s.ticker}-${ts}" style="padding:7px 8px;color:var(--muted);">—</td>
+      <td style="padding:4px 8px;"><button onclick="hofAdminDelete('bull_pen_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
     </tr>`;
   }).join('');
 }
@@ -1393,6 +1417,7 @@ function _renderStrictAdminTable(records) {
       <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
       <td style="padding:7px 8px;color:#64c8ff;">${s.conviction}%</td>
       <td id="sret-${s.ticker}-${new Date(s.detected_at).getTime()}" style="padding:7px 8px;color:var(--muted);">—</td>
+      <td style="padding:4px 8px;"><button onclick="hofAdminDelete('bull_pen_strict_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
     </tr>`;
   }).join('');
 }
