@@ -467,10 +467,10 @@ async function hofAdminDelete(table, ticker) {
   const session = (await getSupabase().auth.getSession()).data?.session;
   if (!session?.access_token) { alert('Not authenticated.'); return; }
   try {
-    const res = await fetch('/api/hof/delete', {
+    const res = await fetch('/api/hof/admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify({ table, ticker }),
+      body: JSON.stringify({ action: 'delete', table, ticker }),
       signal: AbortSignal.timeout(10000),
     });
     const data = await res.json();
@@ -559,10 +559,10 @@ async function hofAdminInsert() {
 
     if (token) {
       try {
-        const res = await fetch('/api/hof/admin-insert', {
+        const res = await fetch('/api/hof/admin', {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body:    JSON.stringify({ ticker, price, conviction: record.conviction, source: record.source,
+          body:    JSON.stringify({ action: 'insert', ticker, price, conviction: record.conviction, source: record.source,
                                     ...(record.detected_at ? { detectedAt: dateStr } : {}) }),
           signal:  AbortSignal.timeout(15000),
         });
@@ -642,10 +642,10 @@ async function adminReScanToHof() {
 
   setMsg(`⏳ Force-inserting ${bulls.length} tickers into HOF…`, true);
   try {
-    const res = await fetch('/api/hof/admin-batch-insert', {
+    const res = await fetch('/api/hof/admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ signals: bulls }),
+      body: JSON.stringify({ action: 'batch-insert', signals: bulls }),
     });
     if (!res.ok) { const e = await res.json().catch(() => ({})); setMsg(`Error: ${e.error || res.status}`, false); return; }
     const data = await res.json();
@@ -1360,10 +1360,10 @@ async function runStrictScanner() {
 
 async function hofRecordStrict(bulls) {
   try {
-    await fetch('/api/strict/record', {
+    await fetch('/api/bullpen/record', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
+      body: JSON.stringify({ table: 'bull_pen_strict_hof', signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
       signal: AbortSignal.timeout(10000),
     });
   } catch (e) {

@@ -1,5 +1,6 @@
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ALLOWED_BP_TABLES = new Set(['bull_pen_hof', 'bull_pen_strict_hof']);
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -7,7 +8,9 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { signals } = req.body || {};
+  const { signals, table: reqTable } = req.body || {};
+  const table = ALLOWED_BP_TABLES.has(reqTable) ? reqTable : 'bull_pen_hof';
+
   if (!Array.isArray(signals) || !signals.length)
     return res.status(400).json({ error: 'No signals' });
 
@@ -22,11 +25,8 @@ export default async function handler(req, res) {
   const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
 
   const checkRes = await fetch(
-    `${SUPABASE_URL}/rest/v1/bull_pen_hof?ticker=in.(${tickerList})&detected_at=gte.${cutoff}&select=ticker`,
-    {
-      headers: { apikey: SUPABASE_SVC, Authorization: `Bearer ${SUPABASE_SVC}` },
-      signal: AbortSignal.timeout(8000),
-    }
+    `${SUPABASE_URL}/rest/v1/${table}?ticker=in.(${tickerList})&detected_at=gte.${cutoff}&select=ticker`,
+    { headers: { apikey: SUPABASE_SVC, Authorization: `Bearer ${SUPABASE_SVC}` }, signal: AbortSignal.timeout(8000) }
   );
   if (!checkRes.ok) {
     console.error('[BP record] dedup check failed:', checkRes.status);
@@ -41,13 +41,9 @@ export default async function handler(req, res) {
 
   if (!toInsert.length) return res.status(200).json({ inserted: 0, skipped: valid.length });
 
-  const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/bull_pen_hof`, {
+  const insertRes = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: 'POST',
-    headers: {
-      apikey:         SUPABASE_SVC,
-      Authorization:  `Bearer ${SUPABASE_SVC}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { apikey: SUPABASE_SVC, Authorization: `Bearer ${SUPABASE_SVC}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(toInsert),
     signal: AbortSignal.timeout(8000),
   });
