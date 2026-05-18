@@ -1557,31 +1557,45 @@ async function quickAnalyzeMinervini(ticker, spyData) {
     if (rangePos < 0.75) return null;
     // Price > 30% above 52-week low (not a recovery-from-crash play)
     if ((lastClose - yearLow) / yearLow < 0.30) return null;
-    // RSI in momentum zone 45–82 (confirmed trend without exhaustion)
+    // RSI in momentum zone 45–75 (confirmed trend; >75 = overbought, skip)
     const rsi = calcRSI(closes, 14);
-    if (!rsi || rsi < 45 || rsi > 82) return null;
-    // Market regime: SPY must be above its 50-day EMA
+    if (!rsi || rsi < 45 || rsi > 75) return null;
+    // Market regime: SPY must be at or above its 50-day EMA (no slack)
     if (spyData) {
       const sc   = spyData.closes.filter(Boolean);
       const se50 = calcEMA(sc, 50);
-      if (sc[sc.length - 1] < se50[se50.length - 1] * 0.97) return null;
+      if (sc[sc.length - 1] < se50[se50.length - 1]) return null;
+    }
+    // Overextension gate: reject if price ran >15% in last 10 trading days
+    if (closes.length >= 11) {
+      const move10d = (lastClose - closes[closes.length - 11]) / closes[closes.length - 11];
+      if (move10d > 0.15) return null;
     }
 
     // ── CONVICTION SCORING ────────────────────────────────────────────────
     let score = 0;
 
-    // 1. EMA20 alignment (price near EMA20 = healthy pullback entry)
-    const pctAboveEma20 = (lastClose - ema20) / ema20;
-    if (pctAboveEma20 >= 0 && pctAboveEma20 <= 0.03)      score += 0.25;
-    else if (pctAboveEma20 > 0.03 && pctAboveEma20 <= 0.08) score += 0.15;
-    else if (pctAboveEma20 > 0.08)                          score += 0.05;
+    // 1. Base tightness (VCP proxy): recent ATR contracting vs longer-term ATR
+    // Contracting volatility near highs = healthy consolidation, not a blow-off
+    const atrRecent = calcATR(highs.slice(-15), lows.slice(-15), closes.slice(-15), 10);
+    const atrBase   = calcATR(highs.slice(-40), lows.slice(-40), closes.slice(-40), 30);
+    const atrRatio  = atrBase > 0 ? atrRecent / atrBase : 1;
+    if (atrRatio < 0.70)      score += 0.25; // Tight base — ideal VCP entry
+    else if (atrRatio < 0.90) score += 0.12; // Mild contraction
+    else if (atrRatio > 1.20) score -= 0.10; // Expanding volatility — chasing a move
 
-    // 2. MACD positive and expanding
+    // 2. EMA20 proximity (price near EMA20 = pulled back to support, not overextended)
+    const pctAboveEma20 = (lastClose - ema20) / ema20;
+    if (pctAboveEma20 >= 0 && pctAboveEma20 <= 0.03)       score += 0.20;
+    else if (pctAboveEma20 > 0.03 && pctAboveEma20 <= 0.08) score += 0.10;
+    // >8% above EMA20 = extended, no bonus
+
+    // 3. MACD positive and expanding
     const macd = calcMACD(closes);
     if (macd.histogram > 0 && macd.macd > 0)  score += 0.20;
     else if (macd.histogram > 0)               score += 0.08;
 
-    // 3. Volume accumulation: up-day volume > down-day volume (last 20 days)
+    // 4. Volume accumulation: up-day volume > down-day volume (last 20 days)
     const rCloses  = closes.slice(-21);
     const rVolumes = volumes.slice(-21);
     let upVol = 0, downVol = 0;
@@ -1592,7 +1606,7 @@ async function quickAnalyzeMinervini(ticker, spyData) {
     if (upVol > downVol * 1.3) score += 0.20;
     else if (upVol > downVol)  score += 0.10;
 
-    // 4. Relative strength vs SPY (3-month ~63 trading days)
+    // 5. Relative strength vs SPY (3-month ~63 trading days)
     if (spyData && closes.length >= 64) {
       const sc = spyData.closes.filter(Boolean);
       const stockRet3m = (lastClose - closes[closes.length - 64]) / closes[closes.length - 64];
@@ -1605,20 +1619,16 @@ async function quickAnalyzeMinervini(ticker, spyData) {
       else if (rs > 0)    score += 0.05;
     }
 
-    // 5. Near 52-week high (breakout proximity)
-    const distFromHigh = (yearHigh - lastClose) / yearHigh;
-    if (distFromHigh < 0.05)      score += 0.10;
-    else if (distFromHigh < 0.12) score += 0.05;
-
     // Require minimum conviction threshold
     if (score < 0.35) return null;
 
     const conviction = Math.round(Math.min(100, Math.max(50, 50 + (score - 0.35) / 0.65 * 50)));
 
+    const distFromHigh = (yearHigh - lastClose) / yearHigh;
     let topSignal;
-    if (pctAboveEma20 <= 0.03)   topSignal = 'EMA20 pullback entry — Minervini pivot zone';
-    else if (distFromHigh < 0.05) topSignal = 'Within 5% of 52-week high — breakout watch';
-    else                          topSignal = 'Full EMA stack aligned — Stage 2 uptrend';
+    if (atrRatio < 0.70 && pctAboveEma20 <= 0.05) topSignal = 'Tight base at EMA20 — VCP entry zone';
+    else if (atrRatio < 0.90)                      topSignal = 'Volatility contracting near highs — base building';
+    else                                            topSignal = 'Full EMA stack + RS strength — Stage 2 uptrend';
 
     const spark = closes.slice(-30);
     const estimatedUpside = (yearHigh - lastClose) / lastClose * 100;
