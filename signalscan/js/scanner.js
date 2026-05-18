@@ -1571,12 +1571,16 @@ async function quickAnalyzeMinervini(ticker, spyData) {
       const move10d = (lastClose - closes[closes.length - 11]) / closes[closes.length - 11];
       if (move10d > 0.15) return null;
     }
+    // 12-month absolute momentum gate: must be up >15% over the year
+    if (closes.length >= 200) {
+      const ret12m = (lastClose - closes[closes.length - 200]) / closes[closes.length - 200];
+      if (ret12m < 0.15) return null;
+    }
 
     // ── CONVICTION SCORING ────────────────────────────────────────────────
     let score = 0;
 
-    // 1. Base tightness (VCP proxy): recent ATR contracting vs longer-term ATR
-    // Contracting volatility near highs = healthy consolidation, not a blow-off
+    // 1. Base tightness (VCP proxy): ATR contracting vs longer-term ATR
     const atrRecent = calcATR(highs.slice(-15), lows.slice(-15), closes.slice(-15), 10);
     const atrBase   = calcATR(highs.slice(-40), lows.slice(-40), closes.slice(-40), 30);
     const atrRatio  = atrBase > 0 ? atrRecent / atrBase : 1;
@@ -1584,51 +1588,65 @@ async function quickAnalyzeMinervini(ticker, spyData) {
     else if (atrRatio < 0.90) score += 0.12; // Mild contraction
     else if (atrRatio > 1.20) score -= 0.10; // Expanding volatility — chasing a move
 
-    // 2. EMA20 proximity (price near EMA20 = pulled back to support, not overextended)
+    // 2. Base duration: ATR contraction must have been sustained 10+ days
+    // Compare 5-day ATR to 15-day ATR — both should be below the 30-day baseline
+    const atr5d = calcATR(highs.slice(-6), lows.slice(-6), closes.slice(-6), 5);
+    const atr15d = calcATR(highs.slice(-16), lows.slice(-16), closes.slice(-16), 14);
+    const bothTight = atrBase > 0 && (atr5d / atrBase < 0.85) && (atr15d / atrBase < 0.90);
+    if (bothTight) score += 0.15; // Base has been tight for 2+ weeks, not just today
+
+    // 3. Volume pattern: volume declining in base (drying up = no distribution)
+    const volBase   = volumes.slice(-21, -6).reduce((a, b) => a + b, 0) / 15; // 6–20 days ago
+    const volRecent = volumes.slice(-6).reduce((a, b) => a + b, 0) / 6;        // last 5 days
+    if (volBase > 0 && volRecent < volBase * 0.85) score += 0.15; // Volume drying up — healthy base
+    else if (volBase > 0 && volRecent > volBase * 1.30) score += 0.10; // Volume expanding — possible breakout
+
+    // 4. EMA20 slope (near-term trend must be rising, not flattening)
+    const ema20_5dAgo = e20.length >= 6 ? e20[e20.length - 6] : null;
+    if (ema20_5dAgo && ema20 > ema20_5dAgo * 1.002) score += 0.10; // EMA20 rising
+
+    // 5. EMA20 proximity (price near EMA20 = pulled back to support, not overextended)
     const pctAboveEma20 = (lastClose - ema20) / ema20;
-    if (pctAboveEma20 >= 0 && pctAboveEma20 <= 0.03)       score += 0.20;
-    else if (pctAboveEma20 > 0.03 && pctAboveEma20 <= 0.08) score += 0.10;
+    if (pctAboveEma20 >= 0 && pctAboveEma20 <= 0.03)       score += 0.15;
+    else if (pctAboveEma20 > 0.03 && pctAboveEma20 <= 0.08) score += 0.07;
     // >8% above EMA20 = extended, no bonus
 
-    // 3. MACD positive and expanding
+    // 6. MACD positive and expanding
     const macd = calcMACD(closes);
-    if (macd.histogram > 0 && macd.macd > 0)  score += 0.20;
-    else if (macd.histogram > 0)               score += 0.08;
+    if (macd.histogram > 0 && macd.macd > 0)  score += 0.15;
+    else if (macd.histogram > 0)               score += 0.06;
 
-    // 4. Volume accumulation: up-day volume > down-day volume (last 20 days)
-    const rCloses  = closes.slice(-21);
-    const rVolumes = volumes.slice(-21);
-    let upVol = 0, downVol = 0;
-    for (let i = 1; i < rCloses.length; i++) {
-      if (rCloses[i] > rCloses[i - 1]) upVol  += rVolumes[i];
-      else                              downVol += rVolumes[i];
-    }
-    if (upVol > downVol * 1.3) score += 0.20;
-    else if (upVol > downVol)  score += 0.10;
-
-    // 5. Relative strength vs SPY (3-month ~63 trading days)
-    if (spyData && closes.length >= 64) {
+    // 7. Relative strength vs SPY — both 3-month and 12-month
+    if (spyData) {
       const sc = spyData.closes.filter(Boolean);
-      const stockRet3m = (lastClose - closes[closes.length - 64]) / closes[closes.length - 64];
-      const spyRet3m   = sc.length >= 64
-        ? (sc[sc.length - 1] - sc[sc.length - 64]) / sc[sc.length - 64]
-        : 0;
-      const rs = stockRet3m - spyRet3m;
-      if (rs > 0.20)      score += 0.25;
-      else if (rs > 0.08) score += 0.15;
-      else if (rs > 0)    score += 0.05;
+      if (closes.length >= 64 && sc.length >= 64) {
+        const stockRet3m = (lastClose - closes[closes.length - 64]) / closes[closes.length - 64];
+        const spyRet3m   = (sc[sc.length - 1] - sc[sc.length - 64]) / sc[sc.length - 64];
+        const rs3m = stockRet3m - spyRet3m;
+        if (rs3m > 0.20)      score += 0.15;
+        else if (rs3m > 0.08) score += 0.08;
+        else if (rs3m > 0)    score += 0.03;
+      }
+      if (closes.length >= 200 && sc.length >= 200) {
+        const stockRet12m = (lastClose - closes[closes.length - 200]) / closes[closes.length - 200];
+        const spyRet12m   = (sc[sc.length - 1] - sc[sc.length - 200]) / sc[sc.length - 200];
+        const rs12m = stockRet12m - spyRet12m;
+        if (rs12m > 0.25)      score += 0.15; // True momentum leader
+        else if (rs12m > 0.10) score += 0.08;
+        else if (rs12m > 0)    score += 0.03;
+      }
     }
 
     // Require minimum conviction threshold
-    if (score < 0.35) return null;
+    if (score < 0.40) return null;
 
-    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (score - 0.35) / 0.65 * 50)));
+    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (score - 0.40) / 0.60 * 50)));
 
-    const distFromHigh = (yearHigh - lastClose) / yearHigh;
     let topSignal;
-    if (atrRatio < 0.70 && pctAboveEma20 <= 0.05) topSignal = 'Tight base at EMA20 — VCP entry zone';
-    else if (atrRatio < 0.90)                      topSignal = 'Volatility contracting near highs — base building';
-    else                                            topSignal = 'Full EMA stack + RS strength — Stage 2 uptrend';
+    if (bothTight && pctAboveEma20 <= 0.05)  topSignal = 'Multi-week VCP base at EMA20 — optimal entry';
+    else if (atrRatio < 0.70)                topSignal = 'Tight base forming — VCP in progress';
+    else if (atrRatio < 0.90)                topSignal = 'Volatility contracting near highs — base building';
+    else                                     topSignal = 'Stage 2 uptrend — RS leader, full EMA stack';
 
     const spark = closes.slice(-30);
     const estimatedUpside = (yearHigh - lastClose) / lastClose * 100;
