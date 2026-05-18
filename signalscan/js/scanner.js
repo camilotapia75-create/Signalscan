@@ -95,38 +95,55 @@ async function quickAnalyzeForScan(ticker) {
     const data = await fetchStockData(ticker, getScanTimeframe());
     if (!data || !data.closes) return { _networkFail: true };
     const closes = data.closes.filter(Boolean);
-    if (closes.length < 45) return null;
+    if (closes.length < 50) return null;
     const indData = computeIndicators(data);
     if (!indData) return null;
 
-    if (!ticker.includes('-USD') && indData.lastClose < 3) return null;
+    const { rsi, ema20, ema50, lastClose, atr } = indData;
+
+    if (lastClose < 10) return null; // no sub-$10 stocks
+
+    // Hard trend gates — stock must be in a confirmed Stage 2 uptrend
+    if (lastClose < ema50)       return null; // price below 50-day MA
+    if (ema20 < ema50)           return null; // EMA stack not aligned
+    if (rsi < 45 || rsi > 82)   return null; // outside bull momentum zone
+
+    // Long-term trend gate: price must be above 200-day EMA
+    if (closes.length >= 200) {
+      const e200 = calcEMA(closes, 200);
+      if (lastClose < e200[e200.length - 1]) return null;
+    }
 
     const highs  = data.highs.filter(Boolean);
     const lows   = data.lows.filter(Boolean);
     const yearHigh = Math.max(...highs);
     const yearLow  = Math.min(...lows);
+
+    // Reject stocks in confirmed collapse (near year low + falling 50-day MA)
     const rangeSpan = yearHigh - yearLow;
-    const nearYearlyLow = rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20;
+    const nearYearlyLow = rangeSpan > 0 && (lastClose - yearLow) / rangeSpan < 0.20;
     const e50 = calcEMA(closes, 50);
     const ema50Collapsing = e50.length >= 9 && (e50[e50.length-1] - e50[e50.length-9]) / e50[e50.length-9] < -0.08;
     if (nearYearlyLow && ema50Collapsing) return null;
 
     const sr   = findSupportResistance(highs, lows, closes);
     const pa   = analyzePriceAction(data);
-    const rev  = generateAnalysis(ticker, indData, sr, pa);
+    // Use continuation analysis only — reversal analysis rewards falling stocks (oversold/RSI<25)
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
-    // Both scores must be meaningfully bullish — no more near-zero threshold
-    const isGoldenBull = rev.score > 0.40 && cont.score > 0.45;
 
-    const conviction = Math.round(Math.min(100, Math.max(60, 60 + (rev.score + cont.score - 0.85) / 0.65 * 40)));
-    const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
-    const spark = closes.slice(-30);
-    const nearestRes = sr.resistance.filter(r => r.price > indData.lastClose)[0];
+    const isGoldenBull = cont.score > 0.50;
+    if (!isGoldenBull) return null;
+
+    const conviction   = Math.round(Math.min(100, Math.max(60, 60 + (cont.score - 0.50) / 0.50 * 40)));
+    const topSignal    = cont.keySignals[0]?.text || '';
+    const spark        = closes.slice(-30);
+    const stopPrice    = Math.max(ema20 * 0.99, lastClose - atr * 1.5);
+    const nearestRes   = sr.resistance.filter(r => r.price > lastClose)[0];
     const estimatedUpside = nearestRes
-      ? (nearestRes.price - indData.lastClose) / indData.lastClose * 100
-      : Math.max(0, (yearHigh - indData.lastClose) / indData.lastClose * 100);
+      ? (nearestRes.price - lastClose) / lastClose * 100
+      : Math.max(0, (yearHigh - lastClose) / lastClose * 100);
 
-    return { ticker, price: indData.lastClose, isGoldenBull, conviction, topSignal, revScore: rev.score, contScore: cont.score, spark, estimatedUpside };
+    return { ticker, price: lastClose, isGoldenBull, conviction, topSignal, contScore: cont.score, spark, estimatedUpside, stopPrice };
   } catch (e) {
     console.error(`[SCAN] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
@@ -235,9 +252,25 @@ async function runScanner() {
   return startScan();
 }
 
-function runCustomScanner() {
+async function runCustomScanner() {
   const tickers = window._watchlistTickers || [];
   if (tickers.length === 0) return;
+  try {
+    const spyData   = await fetchStockData('SPY', '1d|3mo');
+    const spyCloses = spyData?.closes?.filter(Boolean) || [];
+    if (spyCloses.length >= 50) {
+      const spyE50  = calcEMA(spyCloses, 50);
+      if (spyCloses[spyCloses.length - 1] < spyE50[spyE50.length - 1] * 0.99) {
+        const emptyMsg = document.getElementById('customScanEmpty');
+        if (emptyMsg) {
+          emptyMsg.style.display = 'block';
+          const msgEl = emptyMsg.querySelector('div:last-child');
+          if (msgEl) msgEl.innerHTML = '⚠️ Market downtrend — SPY below 50-day EMA.<br><span style="font-size:10px;">Watchlist scan suppressed to protect capital.</span>';
+        }
+        return;
+      }
+    }
+  } catch (_) {}
   return _runScanCore(tickers, {
     btnId: 'customScanBtn',       progressId: 'customScanProgress', gridId: 'customScanGrid',
     emptyId: 'customScanEmpty',   headerId: 'customScanHeader',     foundMsgId: 'customScanFoundMsg',
@@ -247,16 +280,21 @@ function runCustomScanner() {
 }
 
 function renderScanCard(r) {
+  const fmt = v => v < 10 ? v.toFixed(4) : v.toFixed(2);
+  const stopStr = r.stopPrice ? `<span style="color:#ff6b6b;font-size:0.72em;">Stop $${fmt(r.stopPrice)} · Risk ${((r.price - r.stopPrice) / r.price * 100).toFixed(1)}%</span>` : '';
+  const convColor = r.conviction >= 80 ? '#00ff88' : r.conviction >= 70 ? '#f5a623' : '#aaa';
   return `<div class="scan-card" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <span style="font-weight:700;font-size:1.1em;">${r.ticker}</span>
-      <span style="font-size:0.85em;color:#aaa;">$${r.price.toFixed(r.price < 10 ? 4 : 2)}</span>
+      <span style="font-size:0.85em;color:#aaa;">$${fmt(r.price)}</span>
     </div>
     <div class="scan-card-bar"></div>
-    <div style="font-size:0.8em;margin-bottom:${r.topSignal ? '8px' : '0'};">
-      <span style="color:#00ff88;font-weight:600;">⚡ GOLDEN BULL</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:${r.topSignal ? '6px' : '0'};">
+      <span style="color:#00ff88;font-weight:600;font-size:0.8em;">⚡ GOLDEN BULL</span>
+      <span style="font-size:0.72em;font-weight:700;color:${convColor};">${r.conviction}% conviction</span>
     </div>
-    ${r.topSignal ? `<div style="font-size:0.75em;color:#bbb;line-height:1.4;">${r.topSignal.substring(0, 90)}${r.topSignal.length > 90 ? '…' : ''}</div>` : ''}
+    ${stopStr ? `<div style="margin-bottom:4px;">${stopStr}</div>` : ''}
+    ${r.topSignal ? `<div style="font-size:0.72em;color:#bbb;line-height:1.4;">${r.topSignal.substring(0, 90)}${r.topSignal.length > 90 ? '…' : ''}</div>` : ''}
   </div>`;
 }
 
@@ -991,76 +1029,64 @@ async function quickAnalyzeForScanV2(ticker, spyReturn) {
     const indData = computeIndicators(data);
     if (!indData) return null;
 
-    if (!ticker.includes('-USD') && indData.lastClose < 3) return null;
+    const { rsi, ema20, ema50, lastClose, volRatio, atr } = indData;
+
+    if (lastClose < 5) return null;
+
+    // Hard trend gates — must be in uptrend to qualify
+    if (lastClose < ema20)       return null; // price below EMA20
+    if (ema20 < ema50)           return null; // EMA stack not aligned
+    if (rsi < 40 || rsi > 82)   return null; // outside bull zone
 
     const highs   = data.highs.filter(Boolean);
     const lows    = data.lows.filter(Boolean);
-
     const yearHigh  = Math.max(...highs);
     const yearLow   = Math.min(...lows);
     const rangeSpan = yearHigh - yearLow;
-    const nearYearlyLow     = rangeSpan > 0 && (indData.lastClose - yearLow) / rangeSpan < 0.20;
-    const e50               = calcEMA(closes, 50);
-    const ema50Collapsing   = e50.length >= 9 && (e50[e50.length-1] - e50[e50.length-9]) / e50[e50.length-9] < -0.08;
+    const nearYearlyLow   = rangeSpan > 0 && (lastClose - yearLow) / rangeSpan < 0.20;
+    const e50             = calcEMA(closes, 50);
+    const ema50Collapsing = e50.length >= 9 && (e50[e50.length-1] - e50[e50.length-9]) / e50[e50.length-9] < -0.08;
     if (nearYearlyLow && ema50Collapsing) return null;
 
-    const sr  = findSupportResistance(highs, lows, closes);
-    const pa  = analyzePriceAction(data);
-    const rev  = generateAnalysis(ticker, indData, sr, pa);
+    const sr   = findSupportResistance(highs, lows, closes);
+    const pa   = analyzePriceAction(data);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
 
-    let revScore  = rev.score;
     let contScore = cont.score;
 
-    const { volRatio, lastClose, ema20, atr } = indData;
-
-    // 1. Volume surge — pre-pump anomaly detection
-    if (volRatio > 2.5) {
-      revScore  = Math.min(1, revScore  + 0.30);
-      contScore = Math.min(1, contScore + 0.30);
-    } else if (volRatio > 1.8) {
-      revScore  = Math.min(1, revScore  + 0.15);
-      contScore = Math.min(1, contScore + 0.15);
-    }
-
-    // 2. Near 52-week high with elevated volume = breakout momentum (inverted from V1 penalty)
+    // Breakout near 52-week high with real volume (not a blind bonus — stock must already pass gates)
     const near52High = (yearHigh - lastClose) / yearHigh < 0.08;
-    if (near52High && volRatio > 1.2) {
-      revScore  = Math.min(1, revScore  + 0.25);
-      contScore = Math.min(1, contScore + 0.20);
-    }
+    if (near52High && volRatio > 1.5) contScore = Math.min(1, contScore + 0.12);
 
-    // 3. Bollinger squeeze breakout — short-term ATR expanding vs long-term ATR
+    // Short-term ATR expansion vs 14-day ATR = volatility breakout
     const atrShort = calcATR(highs, lows, closes, 5);
-    if (atrShort > atr * 1.30 && lastClose > ema20) {
-      contScore = Math.min(1, contScore + 0.20);
-    }
+    if (atrShort > atr * 1.25 && lastClose > ema20) contScore = Math.min(1, contScore + 0.10);
 
-    // 4. Relative strength vs SPY — 20-day return comparison
+    // Relative strength vs SPY — 20-day return
     if (spyReturn !== null && closes.length >= 21) {
       const stockReturn = (lastClose - closes[closes.length - 21]) / closes[closes.length - 21] * 100;
       const rsVsSpy = stockReturn - spyReturn;
-      if (rsVsSpy > 8)        contScore = Math.min(1, contScore + 0.20);
-      else if (rsVsSpy > 4)   contScore = Math.min(1, contScore + 0.10);
+      if (rsVsSpy > 8)        contScore = Math.min(1, contScore + 0.15);
+      else if (rsVsSpy > 4)   contScore = Math.min(1, contScore + 0.08);
       else if (rsVsSpy < -10) contScore = Math.max(-1, contScore - 0.20);
     }
 
-    const isGoldenBull = revScore > 0.2 && contScore > 0.25;
+    const isGoldenBull = contScore > 0.45;
+    if (!isGoldenBull) return null;
 
-    // True conviction range 0–100 (V1 floors at 50)
-    const avgScore = (revScore + contScore) / 2;
-    const conviction = Math.round(Math.min(100, Math.max(0, 50 + (avgScore - 0.2) / 0.8 * 50)));
+    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (contScore - 0.45) / 0.55 * 50)));
+    const stopPrice  = Math.max(ema20 * 0.99, lastClose - atr * 1.5);
 
-    console.log(`[BULL PEN] ${ticker}: rev=${revScore.toFixed(2)} cont=${contScore.toFixed(2)} => ${isGoldenBull ? '🧪 BULL' : 'skip'}`);
+    console.log(`[BULL PEN] ${ticker}: cont=${contScore.toFixed(2)} rsi=${rsi.toFixed(1)} => 🧪 BULL`);
 
-    const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
+    const topSignal = cont.keySignals[0]?.text || '';
     const spark = closes.slice(-30);
     const nearestRes = sr.resistance.filter(r => r.price > lastClose)[0];
     const estimatedUpside = nearestRes
       ? (nearestRes.price - lastClose) / lastClose * 100
       : Math.max(0, (yearHigh - lastClose) / lastClose * 100);
 
-    return { ticker, price: lastClose, isGoldenBull, conviction, topSignal, revScore, contScore, spark, estimatedUpside };
+    return { ticker, price: lastClose, isGoldenBull, conviction, topSignal, contScore, spark, estimatedUpside, stopPrice };
   } catch (e) {
     console.error(`[BULL PEN] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
@@ -1074,6 +1100,19 @@ async function runBullPenScanner() {
     if (spyData?.closes) {
       const sc = spyData.closes.filter(Boolean);
       if (sc.length >= 21) spyReturn = (sc[sc.length-1] - sc[sc.length-21]) / sc[sc.length-21] * 100;
+      // Regime gate: abort if SPY is below its 50-day EMA
+      if (sc.length >= 50) {
+        const spyE50 = calcEMA(sc, 50);
+        if (sc[sc.length - 1] < spyE50[spyE50.length - 1] * 0.99) {
+          const emptyMsg = document.getElementById('bpEmpty');
+          if (emptyMsg) {
+            emptyMsg.style.display = 'block';
+            const msgEl = emptyMsg.querySelector('div:last-child');
+            if (msgEl) msgEl.innerHTML = '⚠️ Market downtrend — SPY below 50-day EMA.<br><span style="font-size:10px;">Bull Pen signals suppressed to protect capital.</span>';
+          }
+          return;
+        }
+      }
     }
     console.log(`[BULL PEN] SPY 20-day return: ${spyReturn?.toFixed(2) ?? 'unavailable'}%`);
   } catch (_) {}
