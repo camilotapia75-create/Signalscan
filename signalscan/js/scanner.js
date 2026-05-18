@@ -747,6 +747,7 @@ async function loadHofReturns() {
           <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
           <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
           <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+          <td style="padding:4px 8px;"><button onclick="hofAdminDelete('golden_bull_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
         </tr>`;
       }).join('');
     }
@@ -1230,6 +1231,7 @@ async function loadBullPenReturns() {
         <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
         <td style="padding:7px 8px;color:#ff9055;">${s.conviction}%</td>
         <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+        <td style="padding:4px 8px;"><button onclick="hofAdminDelete('bull_pen_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
       </tr>`;
     }).join('');
   }
@@ -1453,6 +1455,7 @@ async function loadStrictReturns() {
         <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
         <td style="padding:7px 8px;color:#64c8ff;">${s.conviction}%</td>
         <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+        <td style="padding:4px 8px;"><button onclick="hofAdminDelete('bull_pen_strict_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
       </tr>`;
     }).join('');
   }
