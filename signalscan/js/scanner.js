@@ -1651,17 +1651,6 @@ async function quickAnalyzeMinervini(ticker, spyData) {
     // Require minimum conviction threshold
     if (score < 0.40) return null;
 
-    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (score - 0.40) / 0.60 * 50)));
-
-    let topSignal;
-    if (bothTight && pctAboveEma20 <= 0.05)  topSignal = 'Multi-week VCP base at EMA20 — optimal entry';
-    else if (atrRatio < 0.70)                topSignal = 'Tight base forming — VCP in progress';
-    else if (atrRatio < 0.90)                topSignal = 'Volatility contracting near highs — base building';
-    else                                     topSignal = 'Stage 2 uptrend — RS leader, full EMA stack';
-
-    const spark = closes.slice(-30);
-    const estimatedUpside = (yearHigh - lastClose) / lastClose * 100;
-
     // ── BASE / PIVOT DETECTION ─────────────────────────────────────────────
     // Pivot = highest close from 3–35 days ago (top of consolidation base)
     const baseLookback  = Math.min(closes.length - 4, 35);
@@ -1703,7 +1692,6 @@ async function quickAnalyzeMinervini(ticker, spyData) {
       }
     }
 
-    if (score < 0.40) return null;
     const conviction = Math.round(Math.min(100, Math.max(50, 50 + (score - 0.40) / 0.60 * 50)));
     const spark      = closes.slice(-30);
 
