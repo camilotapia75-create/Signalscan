@@ -90,7 +90,7 @@ function computeIndicators(data) {
   }
 }
 
-async function quickAnalyzeForScan(ticker) {
+async function quickAnalyzeForScan(ticker, spyReturn20d = null) {
   try {
     const data = await fetchStockData(ticker, getScanTimeframe());
     if (!data || !data.closes) return { _networkFail: true };
@@ -99,42 +99,43 @@ async function quickAnalyzeForScan(ticker) {
     const indData = computeIndicators(data);
     if (!indData) return null;
 
-    const { rsi, ema20, ema50, lastClose, atr } = indData;
+    const { rsi, macd, ema20, ema50, lastClose, atr } = indData;
 
-    if (lastClose < 10) return null; // no sub-$10 stocks
+    if (lastClose < 10) return null;
 
-    // Hard trend gates — stock must be in a confirmed Stage 2 uptrend
-    if (lastClose < ema50)       return null; // price below 50-day MA
-    if (ema20 < ema50)           return null; // EMA stack not aligned
-    if (rsi < 45 || rsi > 82)   return null; // outside bull momentum zone
+    // ── Hard trend gates ──────────────────────────────────────────────────────
+    if (lastClose < ema50)         return null; // price below 50-day MA
+    if (ema20 < ema50)             return null; // EMA stack not aligned
+    if (rsi < 50 || rsi > 78)     return null; // must be in the bull zone (not just off oversold)
+    if (macd.histogram <= 0)       return null; // MACD momentum must be positive and building
 
-    // Long-term trend gate: price must be above 200-day EMA
+    // Long-term trend: price above 200-day MA
     if (closes.length >= 200) {
       const e200 = calcEMA(closes, 200);
       if (lastClose < e200[e200.length - 1]) return null;
     }
 
-    const highs  = data.highs.filter(Boolean);
-    const lows   = data.lows.filter(Boolean);
+    const highs    = data.highs.filter(Boolean);
+    const lows     = data.lows.filter(Boolean);
     const yearHigh = Math.max(...highs);
     const yearLow  = Math.min(...lows);
 
-    // Reject stocks in confirmed collapse (near year low + falling 50-day MA)
-    const rangeSpan = yearHigh - yearLow;
-    const nearYearlyLow = rangeSpan > 0 && (lastClose - yearLow) / rangeSpan < 0.20;
-    const e50 = calcEMA(closes, 50);
-    const ema50Collapsing = e50.length >= 9 && (e50[e50.length-1] - e50[e50.length-9]) / e50[e50.length-9] < -0.08;
-    if (nearYearlyLow && ema50Collapsing) return null;
+    // Must be a momentum leader — within 20% of 52-week high (not a laggard)
+    if ((yearHigh - lastClose) / yearHigh > 0.20) return null;
+
+    // Must outperform SPY over 20 days by at least +3% — market leaders only
+    if (spyReturn20d !== null && closes.length >= 21) {
+      const stockRet20d = (lastClose - closes[closes.length - 21]) / closes[closes.length - 21] * 100;
+      if (stockRet20d < spyReturn20d + 3) return null;
+    }
 
     const sr   = findSupportResistance(highs, lows, closes);
     const pa   = analyzePriceAction(data);
-    // Use continuation analysis only — reversal analysis rewards falling stocks (oversold/RSI<25)
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
 
-    const isGoldenBull = cont.score > 0.50;
-    if (!isGoldenBull) return null;
+    if (cont.score <= 0.60) return null;
 
-    const conviction   = Math.round(Math.min(100, Math.max(60, 60 + (cont.score - 0.50) / 0.50 * 40)));
+    const conviction   = Math.round(Math.min(100, Math.max(60, 60 + (cont.score - 0.60) / 0.40 * 40)));
     const topSignal    = cont.keySignals[0]?.text || '';
     const spark        = closes.slice(-30);
     const stopPrice    = Math.max(ema20 * 0.99, lastClose - atr * 1.5);
@@ -143,7 +144,7 @@ async function quickAnalyzeForScan(ticker) {
       ? (nearestRes.price - lastClose) / lastClose * 100
       : Math.max(0, (yearHigh - lastClose) / lastClose * 100);
 
-    return { ticker, price: lastClose, isGoldenBull, conviction, topSignal, contScore: cont.score, spark, estimatedUpside, stopPrice };
+    return { ticker, price: lastClose, isGoldenBull: true, conviction, topSignal, contScore: cont.score, spark, estimatedUpside, stopPrice };
   } catch (e) {
     console.error(`[SCAN] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
@@ -221,17 +222,17 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn, hofSour
   btn.textContent = btnLabel || '🔍 SCAN AGAIN';
 }
 
-function startScan() {
+function startScan(spyReturn20d = null) {
   return _runScanCore(SCAN_UNIVERSE, {
     btnId: 'scanBtn',           progressId: 'scanProgress',       gridId:    'scanResultsGrid',
     emptyId: 'scanEmpty',       headerId: 'scanResultsHeader',    foundMsgId:'scanFoundMsg',
     statusId: 'scanStatusText', countId: 'scanProgressCount',     barId:     'scanProgressBar',
     btnLabel: '🔍 SCAN AGAIN',
-  }, null, null, null, 'scanner');
+  }, (t) => quickAnalyzeForScan(t, spyReturn20d), null, null, 'scanner');
 }
 
 async function runScanner() {
-  // Block scans when market is in a downtrend — no point finding "bull" signals in a bear market
+  let spyReturn20d = null;
   try {
     const spyData   = await fetchStockData('SPY', '1d|3mo');
     const spyCloses = spyData?.closes?.filter(Boolean) || [];
@@ -248,8 +249,12 @@ async function runScanner() {
         return;
       }
     }
+    if (spyCloses.length >= 21) {
+      spyReturn20d = (spyCloses[spyCloses.length - 1] - spyCloses[spyCloses.length - 21]) / spyCloses[spyCloses.length - 21] * 100;
+      console.log(`[SCANNER] SPY 20-day return: ${spyReturn20d.toFixed(2)}%`);
+    }
   } catch (_) {}
-  return startScan();
+  return startScan(spyReturn20d);
 }
 
 async function runCustomScanner() {
@@ -271,12 +276,18 @@ async function runCustomScanner() {
       }
     }
   } catch (_) {}
+  let spyReturn20d = null;
+  try {
+    const spyData2  = await fetchStockData('SPY', '1d|3mo');
+    const sc        = spyData2?.closes?.filter(Boolean) || [];
+    if (sc.length >= 21) spyReturn20d = (sc[sc.length - 1] - sc[sc.length - 21]) / sc[sc.length - 21] * 100;
+  } catch (_) {}
   return _runScanCore(tickers, {
     btnId: 'customScanBtn',       progressId: 'customScanProgress', gridId: 'customScanGrid',
     emptyId: 'customScanEmpty',   headerId: 'customScanHeader',     foundMsgId: 'customScanFoundMsg',
     statusId: 'customScanStatus', countId: 'customScanCount',       barId: 'customScanBar',
     btnLabel: '🔍 SCAN AGAIN',
-  }, null, (bulls) => hofRecord(bulls, 'watchlist'), null, 'watchlist');
+  }, (t) => quickAnalyzeForScan(t, spyReturn20d), (bulls) => hofRecord(bulls, 'watchlist'), null, 'watchlist');
 }
 
 function renderScanCard(r) {
