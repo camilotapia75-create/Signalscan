@@ -1,56 +1,46 @@
 // Core universe — always scanned
 const SCAN_UNIVERSE_CORE = [
   // Mega-cap tech
-  'AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','AVGO','ORCL','CRM',
-  'NFLX','ADBE','AMD','INTC','QCOM',
-  // AI & AI infrastructure
-  'PLTR','AI','ARM','TSM','MRVL','ALAB','VRT','DELL','SOUN','IONQ',
-  'CEG','VST','EQIX','SMCI',
+  'AAPL','MSFT','NVDA','GOOGL','AMZN','META','AVGO','ORCL','CRM',
+  'NFLX','ADBE','AMD','QCOM',
+  // AI & infrastructure
+  'PLTR','ARM','TSM','MRVL','ANET','DELL','VRT','EQIX',
   // Cybersecurity
-  'CRWD','PANW','ZS','OKTA','S','FTNT','CYBR','NET',
-  // Cloud & SaaS
-  'DDOG','PATH','DOCS','BILL','GTLB','DUOL','MNDY','CFLT','BRZE',
-  'SHOP','ZM','SPOT','APP','TTD','PAYC','PCTY',
-  // High-growth / fintech
-  'COIN','HOOD','AFRM','SOFI','UPST','DKNG','AXON','TOST',
-  // Consumer tech & social
-  'RBLX','U','SNAP','PINS','ROKU',
+  'CRWD','PANW','ZS','FTNT','NET','CYBR',
+  // Cloud & SaaS (quality only)
+  'DDOG','NOW','SNOW','WDAY','HUBS','MDB','SHOP','APP','TTD','GTLB',
+  // Fintech (established)
+  'COIN','PYPL','TOST','AXON',
+  // Consumer tech
+  'ROKU','SPOT',
   // Health & wellness
-  'HIMS','CELH','ONON','PODD','TMDX','INSP','IRTC',
-  // Mid-cap growth
-  'LULU','ULTA','FIVE','SKX','BROS','CAVA','WING',
-  'MELI','NU','SE','RIVN','WOLF',
+  'HIMS','CELH','ONON','PODD','DXCM','ISRG',
+  // Mid-cap quality growth
+  'LULU','CAVA','MELI','NU','BKNG','ABNB','UBER','DASH',
   // Aerospace & defense
-  'LMT','RTX','NOC','GD','BA','HEI','TDG','LDOS','KTOS','RKLB','ACHR',
-  'HON','GE','CAT',
+  'LMT','RTX','NOC','GD','HEI','TDG','KTOS','RKLB',
+  'HON','GE','CAT','ETN',
   // Financials
-  'V','MA','JPM','BAC','WFC','GS','MS',
-  // Healthcare / pharma
-  'UNH','JNJ','PFE','MRK','ABBV',
+  'V','MA','JPM','GS','MS','BLK','SPGI','AXP','COF',
+  // Healthcare
+  'UNH','LLY','ABBV','TMO','AMGN','REGN','VRTX','MRK',
   // Consumer staples & retail
-  'WMT','COST','TGT','HD','MCD','SBUX','NKE',
-  // Media / Telecom
-  'DIS','CMCSA','T','VZ',
-  // Energy
-  'XOM','CVX','COP','ENPH','SEDG','NEE','SO',
-  // Crypto miners
-  'MARA','RIOT','CLSK',
-  // ETFs
-  'SPY','QQQ','IWM','GLD','SLV',
-  // Crypto
-  'BTC-USD','ETH-USD','SOL-USD','BNB-USD','XRP-USD','DOGE-USD',
-  'ADA-USD','AVAX-USD','POL-USD','LINK-USD','DOT-USD','UNI-USD',
-  // Always included
+  'WMT','COST','HD','LOW','MCD','CMG','NKE','TJX',
+  // Energy (quality)
+  'XOM','CVX',
+  // Always tracked
   'ZETA',
 ];
 
-// 50-stock rotation pool — 20 picked randomly each day (same picks all day, rotates daily)
+// Rotation pool — 20 picked daily (quality names only, no speculative garbage)
 const ROTATION_POOL = [
-  'WDAY','SNOW','MDB','NOW','HUBS','ABNB','UBER','DASH','ASTS','IOT',
-  'INTU','CORZ','IREN','RXRX','CRSP','JOBY','LMND','ZI','VEEV','ESTC',
-  'PYPL','SQ','TWLO','NTNX','PSTG','MPWR','AMBA','CIEN','CALX','HPE',
-  'KEYS','ONTO','SWKS','QRVO','STX','WDC','KKR','APO','BX','MSCI',
-  'MCO','ROP','IDXX','ALGN','DXCM','OXY','FANG','MPC','CTRA','VST',
+  'INTU','VEEV','ZI','TWLO','NTNX','PSTG','MPWR','HPE',
+  'SWKS','QRVO','STX','WDC','KKR','APO','BX','MSCI',
+  'MCO','ROP','IDXX','ALGN','OXY','CTRA','ACN','SAP',
+  'ASML','KLAC','LRCX','AMAT','MU','ON','TXN',
+  'SYK','ELV','CI','TMO','DHR','GEHC',
+  'PWR','URI','DE','EMR','ITW','PH',
+  'DECK','ONON','ROST','TJX','ULTA',
 ];
 
 function buildScanUniverse() {
@@ -125,9 +115,10 @@ async function quickAnalyzeForScan(ticker) {
     const pa   = analyzePriceAction(data);
     const rev  = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
-    const isGoldenBull = rev.score > 0.2 && cont.score > 0.25;
+    // Both scores must be meaningfully bullish — no more near-zero threshold
+    const isGoldenBull = rev.score > 0.40 && cont.score > 0.45;
 
-    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (rev.score + cont.score - 0.45) / 0.55 * 50)));
+    const conviction = Math.round(Math.min(100, Math.max(60, 60 + (rev.score + cont.score - 0.85) / 0.65 * 40)));
     const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
     const spark = closes.slice(-30);
     const nearestRes = sr.resistance.filter(r => r.price > indData.lastClose)[0];
@@ -222,7 +213,27 @@ function startScan() {
   }, null, null, null, 'scanner');
 }
 
-function runScanner() { return startScan(); }
+async function runScanner() {
+  // Block scans when market is in a downtrend — no point finding "bull" signals in a bear market
+  try {
+    const spyData   = await fetchStockData('SPY', '1d|3mo');
+    const spyCloses = spyData?.closes?.filter(Boolean) || [];
+    if (spyCloses.length >= 50) {
+      const spyE50  = calcEMA(spyCloses, 50);
+      const spyLast = spyCloses[spyCloses.length - 1];
+      if (spyLast < spyE50[spyE50.length - 1] * 0.99) {
+        const emptyMsg = document.getElementById('scanEmpty');
+        if (emptyMsg) {
+          emptyMsg.style.display = 'block';
+          const msgEl = emptyMsg.querySelector('div:last-child');
+          if (msgEl) msgEl.innerHTML = '⚠️ Market downtrend — SPY below 50-day EMA.<br><span style="font-size:10px;">Golden Bull signals suppressed to protect capital. Check back when market recovers.</span>';
+        }
+        return;
+      }
+    }
+  } catch (_) {}
+  return startScan();
+}
 
 function runCustomScanner() {
   const tickers = window._watchlistTickers || [];
@@ -1651,33 +1662,162 @@ async function quickAnalyzeMinervini(ticker, spyData) {
     const spark = closes.slice(-30);
     const estimatedUpside = (yearHigh - lastClose) / lastClose * 100;
 
-    console.log(`[MINERVINI] ${ticker}: score=${score.toFixed(2)} rsi=${rsi.toFixed(1)} rangePos=${(rangePos*100).toFixed(0)}% => ✅ SIGNAL`);
-    return { ticker, price: lastClose, isGoldenBull: true, conviction, topSignal, spark, estimatedUpside, score };
+    // ── BASE / PIVOT DETECTION ─────────────────────────────────────────────
+    // Pivot = highest close from 3–35 days ago (top of consolidation base)
+    const baseLookback  = Math.min(closes.length - 4, 35);
+    const baseWindow    = closes.slice(-(baseLookback + 3), -3);
+    const pivot         = Math.max(...baseWindow);
+    const baseFloor     = Math.min(...baseWindow);
+    const baseWidth     = pivot > 0 ? (pivot - baseFloor) / pivot : 1;
+
+    // Sloppy base (>18% spread) = not a real VCP
+    if (baseWidth > 0.18) return null;
+
+    // Determine setup phase based on distance from pivot
+    const distFromPivot = (lastClose - pivot) / pivot;
+    let setupPhase, setupPriority;
+    if (distFromPivot > 0.05)        return null; // Extended >5% past breakout — too late
+    else if (distFromPivot > 0.01)   { setupPhase = 'BREAKOUT';   setupPriority = 1; }
+    else if (distFromPivot >= -0.03) { setupPhase = 'AT PIVOT';   setupPriority = 2; }
+    else if (distFromPivot >= -0.08) { setupPhase = 'NEAR PIVOT'; setupPriority = 3; }
+    else                              return null; // Too far from pivot — not actionable yet
+
+    // Stop: below base floor or 8% below entry, whichever gives tighter protection
+    const stopPrice = Math.max(baseFloor * 0.985, lastClose * 0.92);
+
+    // Days in base: consecutive closes within the base range
+    let daysInBase = 0;
+    for (let i = closes.length - 1; i >= 0 && i >= closes.length - 40; i--) {
+      if (closes[i] >= baseFloor * 0.97 && closes[i] <= pivot * 1.02) daysInBase++;
+      else break;
+    }
+    if (daysInBase < 5) return null; // No real base formed
+
+    // Compute rs3m for card display
+    let rs3m = null;
+    if (spyData) {
+      const sc = spyData.closes.filter(Boolean);
+      if (closes.length >= 64 && sc.length >= 64) {
+        rs3m = ((lastClose - closes[closes.length - 64]) / closes[closes.length - 64])
+             - ((sc[sc.length - 1] - sc[sc.length - 64]) / sc[sc.length - 64]);
+      }
+    }
+
+    if (score < 0.40) return null;
+    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (score - 0.40) / 0.60 * 50)));
+    const spark      = closes.slice(-30);
+
+    console.log(`[MINERVINI] ${ticker}: ${setupPhase} dist=${(distFromPivot*100).toFixed(1)}% base=${daysInBase}d score=${score.toFixed(2)} ✅`);
+    return {
+      ticker, price: lastClose, isGoldenBull: true, conviction, spark,
+      pivot, stopPrice, setupPhase, setupPriority, daysInBase, rs3m,
+      distFromPivot, score,
+      estimatedUpside: Math.max(0, (pivot - lastClose) / lastClose * 100),
+      topSignal: `${setupPhase} · Pivot $${pivot.toFixed(2)} · ${daysInBase}d base`,
+    };
   } catch (e) {
     console.error(`[MINERVINI] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
   }
 }
 
-async function runMinerviniScanner() {
-  let spyData = null;
-  try {
-    spyData = await fetchStockData('SPY', '1d|1y');
-  } catch (_) {}
+function renderMinerviniCard(r) {
+  const phaseColor = r.setupPhase === 'BREAKOUT' ? '#00ff88'
+                   : r.setupPhase === 'AT PIVOT'  ? '#22d3a0'
+                   :                                '#f5a623';
+  const phaseIcon  = r.setupPhase === 'BREAKOUT' ? '🚀'
+                   : r.setupPhase === 'AT PIVOT'  ? '🎯'
+                   :                                '⏳';
+  const fmt     = v => v < 10 ? v.toFixed(4) : v.toFixed(2);
+  const pivDist = (r.pivot - r.price) / r.price * 100;
+  const stopRisk = (r.price - r.stopPrice) / r.price * 100;
+  const rsStr   = r.rs3m !== null ? `${r.rs3m >= 0 ? '+' : ''}${(r.rs3m * 100).toFixed(1)}%` : '—';
+  const rsColor = r.rs3m !== null && r.rs3m > 0 ? '#00ff88' : '#ff6666';
 
-  await _runScanCore(
-    [...new Set(MINERVINI_UNIVERSE)],
-    {
-      btnId: 'minerviniScanBtn', progressId: 'minerviniProgress', gridId: 'minerviniResultsGrid',
-      emptyId: 'minerviniEmpty', headerId: 'minerviniResultsHeader', foundMsgId: 'minerviniFoundMsg',
-      statusId: 'minerviniStatusText', countId: 'minerviniProgressCount', barId: 'minerviniProgressBar',
-      btnLabel: '📈 SCAN MINERVINI',
-    },
-    (t) => quickAnalyzeMinervini(t, spyData),
-    hofRecordMinervini,
-    renderMinerviniHoF,
-    'scanner'
-  );
+  return `<div class="scan-card" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;border-color:${phaseColor}44;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-weight:700;font-size:1.1em;">${r.ticker}</span>
+      <span style="font-size:0.85em;color:#aaa;">$${fmt(r.price)}</span>
+    </div>
+    <div style="height:2px;background:linear-gradient(90deg,${phaseColor},transparent);margin-bottom:10px;border-radius:1px;"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+      <span style="color:${phaseColor};font-weight:700;font-size:0.78em;letter-spacing:1px;">${phaseIcon} ${r.setupPhase}</span>
+      <span style="font-size:0.7em;color:#555;">· ${r.daysInBase}d base · conv ${r.conviction}%</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:0.72em;">
+      <div>
+        <div style="color:#555;letter-spacing:0.5px;margin-bottom:2px;">PIVOT</div>
+        <div style="color:${phaseColor};font-weight:600;">$${fmt(r.pivot)}&nbsp;<span style="color:#666;font-weight:400;">${pivDist > 0 ? '+' : ''}${pivDist.toFixed(1)}%</span></div>
+      </div>
+      <div>
+        <div style="color:#555;letter-spacing:0.5px;margin-bottom:2px;">STOP</div>
+        <div style="color:#ff4466;font-weight:600;">$${fmt(r.stopPrice)}&nbsp;<span style="color:#666;font-weight:400;">−${stopRisk.toFixed(1)}%</span></div>
+      </div>
+      <div style="grid-column:1/-1;margin-top:2px;">
+        <span style="color:#555;">RS vs SPY 3mo: </span><span style="color:${rsColor};font-weight:600;">${rsStr}</span>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function runMinerviniScanner() {
+  const btn      = document.getElementById('minerviniScanBtn');
+  const progress = document.getElementById('minerviniProgress');
+  const grid     = document.getElementById('minerviniResultsGrid');
+  const emptyMsg = document.getElementById('minerviniEmpty');
+  const header   = document.getElementById('minerviniResultsHeader');
+  const fill     = document.getElementById('minerviniProgressBar');
+  const countEl  = document.getElementById('minerviniProgressCount');
+  const statusEl = document.getElementById('minerviniStatusText');
+  const foundMsg = document.getElementById('minerviniFoundMsg');
+  if (!btn || !grid) return;
+
+  btn.disabled = true; btn.textContent = '⏳ Scanning...';
+  if (progress) progress.style.display = 'block';
+  if (emptyMsg) emptyMsg.style.display = 'none';
+  if (header)   header.style.display   = 'none';
+  grid.innerHTML = '';
+
+  let spyData = null;
+  try { spyData = await fetchStockData('SPY', '1d|1y'); } catch (_) {}
+
+  const tickers = [...new Set(MINERVINI_UNIVERSE)];
+  const total = tickers.length;
+  let done = 0, failed = 0;
+  const results = [];
+  if (countEl) countEl.textContent = `0 / ${total}`;
+
+  for (let i = 0; i < total; i++) {
+    const ticker = tickers[i];
+    if (statusEl) statusEl.textContent = `Scanning ${ticker}...`;
+    const r = await quickAnalyzeMinervini(ticker, spyData);
+    done++;
+    if (fill)    fill.style.width    = `${Math.round(done / total * 100)}%`;
+    if (countEl) countEl.textContent = `${done} / ${total}`;
+    if (r?._networkFail) { failed++; }
+    else if (r?.isGoldenBull) {
+      results.push(r);
+      if (foundMsg) foundMsg.textContent = `Found ${results.length} setup${results.length !== 1 ? 's' : ''} so far...`;
+    }
+    if (i < total - 1) await new Promise(res => setTimeout(res, 400));
+  }
+
+  // Sort: BREAKOUT → AT PIVOT → NEAR PIVOT, ties by conviction
+  results.sort((a, b) => a.setupPriority - b.setupPriority || b.conviction - a.conviction);
+
+  // Render with actionable cards, not generic "golden bull" cards
+  grid.innerHTML = results.map(renderMinerviniCard).join('');
+
+  if (results.length > 0) {
+    hofRecordMinervini(results);
+    renderMinerviniHoF();
+  } else if (emptyMsg) {
+    emptyMsg.style.display = 'block';
+  }
+
+  if (header)   header.style.display   = '';
+  if (progress) progress.style.display = 'none';
+  btn.disabled = false; btn.textContent = '📈 SCAN MINERVINI';
 }
 
 async function hofRecordMinervini(bulls) {
