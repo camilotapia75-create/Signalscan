@@ -266,6 +266,9 @@ let _hofReturnLoading = false;
 let _allHofAdminRecords = [];
 let _allRenderGen       = 0;
 let _allReturnLoading   = false;
+let _minerviniAdminRecords = [];
+let _minerviniRenderGen    = 0;
+let _minerviniReturnLoading = false;
 
 const HOF_PENDING_KEY = 'signalscan_hof_pending';
 
@@ -476,9 +479,10 @@ async function hofAdminDelete(table, ticker) {
     const data = await res.json();
     if (!res.ok) { alert(`Delete failed: ${data.error}`); return; }
     // Refresh the relevant HOF
-    if (table === 'golden_bull_hof')       renderHoF();
-    else if (table === 'bull_pen_hof')     renderBullPenHoF();
+    if (table === 'golden_bull_hof')          renderHoF();
+    else if (table === 'bull_pen_hof')        renderBullPenHoF();
     else if (table === 'bull_pen_strict_hof') renderStrictHoF();
+    else if (table === 'minervini_hof')       renderMinerviniHoF();
   } catch (e) {
     alert(`Delete error: ${e.message}`);
   }
@@ -931,19 +935,24 @@ let _activeScanTab   = 'original';
 function switchScanTab(tab) {
   _activeScanTab = tab;
 
-  document.getElementById('scanPanelOriginal').style.display = tab === 'original' ? '' : 'none';
-  document.getElementById('scanPanelBullpen').style.display  = tab === 'bullpen'  ? '' : 'none';
-  const strictPanel = document.getElementById('scanPanelStrict');
-  if (strictPanel) strictPanel.style.display = tab === 'strict' ? '' : 'none';
+  document.getElementById('scanPanelOriginal').style.display = tab === 'original'   ? '' : 'none';
+  document.getElementById('scanPanelBullpen').style.display  = tab === 'bullpen'    ? '' : 'none';
+  const strictPanel    = document.getElementById('scanPanelStrict');
+  const minerviniPanel = document.getElementById('scanPanelMinervini');
+  if (strictPanel)    strictPanel.style.display    = tab === 'strict'    ? '' : 'none';
+  if (minerviniPanel) minerviniPanel.style.display = tab === 'minervini' ? '' : 'none';
 
-  document.getElementById('scanBtn').style.display      = tab === 'original' ? '' : 'none';
-  document.getElementById('bpScanBtn').style.display    = tab === 'bullpen'  ? '' : 'none';
-  const strictBtn = document.getElementById('strictScanBtn');
-  if (strictBtn) strictBtn.style.display = tab === 'strict' ? '' : 'none';
+  document.getElementById('scanBtn').style.display   = tab === 'original' ? '' : 'none';
+  document.getElementById('bpScanBtn').style.display = tab === 'bullpen'  ? '' : 'none';
+  const strictBtn    = document.getElementById('strictScanBtn');
+  const minerviniBtn = document.getElementById('minerviniScanBtn');
+  if (strictBtn)    strictBtn.style.display    = tab === 'strict'    ? '' : 'none';
+  if (minerviniBtn) minerviniBtn.style.display = tab === 'minervini' ? '' : 'none';
 
-  const origTab   = document.getElementById('scanTabOriginal');
-  const bpTab     = document.getElementById('scanTabBullpen');
-  const strictTab = document.getElementById('scanTabStrict');
+  const origTab      = document.getElementById('scanTabOriginal');
+  const bpTab        = document.getElementById('scanTabBullpen');
+  const strictTab    = document.getElementById('scanTabStrict');
+  const minerviniTab = document.getElementById('scanTabMinervini');
   if (origTab) {
     origTab.style.background = tab === 'original' ? 'var(--gold)' : 'transparent';
     origTab.style.color      = tab === 'original' ? '#000' : 'var(--muted)';
@@ -955,6 +964,10 @@ function switchScanTab(tab) {
   if (strictTab) {
     strictTab.style.background = tab === 'strict' ? 'rgba(100,200,255,0.15)' : 'transparent';
     strictTab.style.color      = tab === 'strict' ? '#64c8ff' : 'var(--muted)';
+  }
+  if (minerviniTab) {
+    minerviniTab.style.background = tab === 'minervini' ? 'rgba(34,211,160,0.15)' : 'transparent';
+    minerviniTab.style.color      = tab === 'minervini' ? '#22d3a0' : 'var(--muted)';
   }
 }
 
@@ -1462,6 +1475,285 @@ async function loadStrictReturns() {
   }
 
   _strictReturnLoading = false;
+  if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
+}
+
+// ── Minervini SEPA Scanner ────────────────────────────────────────────────────
+// Admin-only. Implements Minervini's Trend Template: full EMA stack (price >
+// EMA50 > EMA150 > EMA200, EMA200 rising), top-quartile 52-week range,
+// RS vs SPY, and volume accumulation scoring. No reversal/mean-reversion bias.
+
+const MINERVINI_UNIVERSE = [
+  // Mega-cap tech
+  'AAPL','MSFT','NVDA','AMZN','META','GOOGL','AVGO',
+  // Software / SaaS / cloud
+  'CRM','ADBE','NOW','PANW','CRWD','ZS','NET','DDOG','FTNT','INTU','ORCL','ACN','UBER','PYPL',
+  'SNOW','HUBS','WDAY','MDB','GTLB','BILL','PCTY','VEEV','SMAR','ZI',
+  // Semiconductors
+  'AMD','QCOM','AMAT','LRCX','KLAC','ASML','TSM','MU','MRVL','TXN','ON','MPWR','WOLF','ENTG',
+  // AI / data infrastructure
+  'PLTR','ARM','ANET','SMCI','AI','DELL','HPE',
+  // Streaming / consumer tech
+  'NFLX','SPOT','LYV','RBLX','ROKU',
+  // Fintech / payments
+  'V','MA','AXP','COIN','SQ','AFRM','SOFI','NU',
+  // Traditional financials
+  'JPM','GS','MS','BLK','SPGI','MCO','CME','ICE','COF','SCHW','FI','GPN',
+  // Healthcare / biotech
+  'UNH','LLY','ABBV','TMO','DHR','ISRG','AMGN','REGN','VRTX','SYK','MRK','ELV','IDXX',
+  'EXAS','GEHC','DXCM','RVMD','CAVA',
+  // Consumer discretionary
+  'HD','LOW','COST','WMT','MCD','CMG','NKE','TJX','BKNG','LULU','ROST','ULTA','ONON','DECK',
+  'ABNB','LYFT','DASH','EXPE',
+  // Industrial / defense / infrastructure
+  'CAT','HON','LMT','RTX','GE','ETN','DE','NOC','GD','AXON','PWR','URI','CSGP','FSLR',
+  // Energy
+  'XOM','CVX','SLB','OXY',
+  // Communication / media / ad-tech
+  'DIS','CMCSA','APP','TTD','MGNI',
+  // International / ADR
+  'SHOP','MELI','SE','TSM',
+  // Blue chips / defensive
+  'JNJ','PG','KO','PEP','ABT','AMZN',
+];
+
+async function quickAnalyzeMinervini(ticker, spyData) {
+  try {
+    const data = await fetchStockData(ticker, '1d|1y');
+    if (!data || !data.closes) return { _networkFail: true };
+    const closes  = data.closes.filter(Boolean);
+    const highs   = data.highs.filter(Boolean);
+    const lows    = data.lows.filter(Boolean);
+    const volumes = data.volumes.filter(Boolean);
+    if (closes.length < 210) return null;
+
+    const lastClose = closes[closes.length - 1];
+    if (lastClose < 10) return null;
+
+    // Calculate full EMA stack
+    const e20  = calcEMA(closes, 20);
+    const e50  = calcEMA(closes, 50);
+    const e150 = calcEMA(closes, 150);
+    const e200 = calcEMA(closes, 200);
+    const ema20  = e20[e20.length - 1];
+    const ema50  = e50[e50.length - 1];
+    const ema150 = e150[e150.length - 1];
+    const ema200 = e200[e200.length - 1];
+    const ema200_4wAgo = e200.length >= 22 ? e200[e200.length - 22] : null;
+
+    const yearHigh = Math.max(...highs);
+    const yearLow  = Math.min(...lows);
+
+    // ── SEPA TREND TEMPLATE (hard gates — all must pass) ─────────────────
+    if (lastClose <= ema200)  return null;  // price above 200
+    if (lastClose <= ema150)  return null;  // price above 150
+    if (lastClose <= ema50)   return null;  // price above 50
+    if (ema150    <= ema200)  return null;  // 150 > 200
+    if (ema50     <= ema150)  return null;  // 50 > 150
+    // EMA200 must be trending up (not rolling over)
+    if (ema200_4wAgo && ema200 <= ema200_4wAgo) return null;
+    // Price in top 25% of 52-week range (buy strength, not weakness)
+    const rangePos = (yearHigh > yearLow) ? (lastClose - yearLow) / (yearHigh - yearLow) : 0;
+    if (rangePos < 0.75) return null;
+    // Price > 30% above 52-week low (not a recovery-from-crash play)
+    if ((lastClose - yearLow) / yearLow < 0.30) return null;
+    // RSI in momentum zone 45–82 (confirmed trend without exhaustion)
+    const rsi = calcRSI(closes, 14);
+    if (!rsi || rsi < 45 || rsi > 82) return null;
+    // Market regime: SPY must be above its 50-day EMA
+    if (spyData) {
+      const sc   = spyData.closes.filter(Boolean);
+      const se50 = calcEMA(sc, 50);
+      if (sc[sc.length - 1] < se50[se50.length - 1] * 0.97) return null;
+    }
+
+    // ── CONVICTION SCORING ────────────────────────────────────────────────
+    let score = 0;
+
+    // 1. EMA20 alignment (price near EMA20 = healthy pullback entry)
+    const pctAboveEma20 = (lastClose - ema20) / ema20;
+    if (pctAboveEma20 >= 0 && pctAboveEma20 <= 0.03)      score += 0.25;
+    else if (pctAboveEma20 > 0.03 && pctAboveEma20 <= 0.08) score += 0.15;
+    else if (pctAboveEma20 > 0.08)                          score += 0.05;
+
+    // 2. MACD positive and expanding
+    const macd = calcMACD(closes);
+    if (macd.histogram > 0 && macd.macd > 0)  score += 0.20;
+    else if (macd.histogram > 0)               score += 0.08;
+
+    // 3. Volume accumulation: up-day volume > down-day volume (last 20 days)
+    const rCloses  = closes.slice(-21);
+    const rVolumes = volumes.slice(-21);
+    let upVol = 0, downVol = 0;
+    for (let i = 1; i < rCloses.length; i++) {
+      if (rCloses[i] > rCloses[i - 1]) upVol  += rVolumes[i];
+      else                              downVol += rVolumes[i];
+    }
+    if (upVol > downVol * 1.3) score += 0.20;
+    else if (upVol > downVol)  score += 0.10;
+
+    // 4. Relative strength vs SPY (3-month ~63 trading days)
+    if (spyData && closes.length >= 64) {
+      const sc = spyData.closes.filter(Boolean);
+      const stockRet3m = (lastClose - closes[closes.length - 64]) / closes[closes.length - 64];
+      const spyRet3m   = sc.length >= 64
+        ? (sc[sc.length - 1] - sc[sc.length - 64]) / sc[sc.length - 64]
+        : 0;
+      const rs = stockRet3m - spyRet3m;
+      if (rs > 0.20)      score += 0.25;
+      else if (rs > 0.08) score += 0.15;
+      else if (rs > 0)    score += 0.05;
+    }
+
+    // 5. Near 52-week high (breakout proximity)
+    const distFromHigh = (yearHigh - lastClose) / yearHigh;
+    if (distFromHigh < 0.05)      score += 0.10;
+    else if (distFromHigh < 0.12) score += 0.05;
+
+    // Require minimum conviction threshold
+    if (score < 0.35) return null;
+
+    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (score - 0.35) / 0.65 * 50)));
+
+    let topSignal;
+    if (pctAboveEma20 <= 0.03)   topSignal = 'EMA20 pullback entry — Minervini pivot zone';
+    else if (distFromHigh < 0.05) topSignal = 'Within 5% of 52-week high — breakout watch';
+    else                          topSignal = 'Full EMA stack aligned — Stage 2 uptrend';
+
+    const spark = closes.slice(-30);
+    const estimatedUpside = (yearHigh - lastClose) / lastClose * 100;
+
+    console.log(`[MINERVINI] ${ticker}: score=${score.toFixed(2)} rsi=${rsi.toFixed(1)} rangePos=${(rangePos*100).toFixed(0)}% => ✅ SIGNAL`);
+    return { ticker, price: lastClose, isGoldenBull: true, conviction, topSignal, spark, estimatedUpside, score };
+  } catch (e) {
+    console.error(`[MINERVINI] ${ticker}: failed —`, e.message);
+    return { _networkFail: true };
+  }
+}
+
+async function runMinerviniScanner() {
+  let spyData = null;
+  try {
+    spyData = await fetchStockData('SPY', '1d|1y');
+  } catch (_) {}
+
+  await _runScanCore(
+    [...new Set(MINERVINI_UNIVERSE)],
+    {
+      btnId: 'minerviniScanBtn', progressId: 'minerviniProgress', gridId: 'minerviniResultsGrid',
+      emptyId: 'minerviniEmpty', headerId: 'minerviniResultsHeader', foundMsgId: 'minerviniFoundMsg',
+      statusId: 'minerviniStatusText', countId: 'minerviniProgressCount', barId: 'minerviniProgressBar',
+      btnLabel: '📈 SCAN MINERVINI',
+    },
+    (t) => quickAnalyzeMinervini(t, spyData),
+    hofRecordMinervini,
+    renderMinerviniHoF,
+    'scanner'
+  );
+}
+
+async function hofRecordMinervini(bulls) {
+  if (!bulls.length) return;
+  try {
+    await fetch('/api/bullpen/record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ table: 'minervini_hof', signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (_) {}
+}
+
+async function renderMinerviniHoF() {
+  const section = document.getElementById('minerviniHofSection');
+  if (!section) return;
+  const gen = ++_minerviniRenderGen;
+
+  try {
+    const { data: records, error } = await getSupabase()
+      .from('minervini_hof')
+      .select('ticker,detected_at,signal_price,conviction')
+      .order('detected_at', { ascending: false })
+      .limit(1000);
+
+    if (gen !== _minerviniRenderGen) return;
+    if (error) throw error;
+    if (!records?.length) { section.style.display = 'none'; return; }
+
+    section.style.display = 'block';
+    _minerviniAdminRecords = records;
+
+    const uniqueCount = new Set(records.map(r => r.ticker)).size;
+    const titleEl    = document.getElementById('minerviniHofTitle');
+    const subtitleEl = document.getElementById('minerviniHofSubtitle');
+    if (titleEl)    titleEl.textContent    = '📈 MINERVINI SEPA — HALL OF FAME';
+    if (subtitleEl) subtitleEl.textContent = `TREND TEMPLATE · ${uniqueCount} TICKERS DETECTED`;
+
+    _renderMinerviniAdminTable(records);
+    const btn = document.getElementById('minerviniHofReturnBtn');
+    if (btn) btn.style.display = 'block';
+    _minerviniReturnLoading = false;
+    loadMinerviniReturns();
+  } catch (e) {
+    console.error('[MINERVINI HOF] renderMinerviniHoF error:', e.message);
+  }
+}
+
+function _renderMinerviniAdminTable(records) {
+  const tbody = document.getElementById('minerviniHofTbody');
+  if (!tbody) return;
+  const byTicker = new Map();
+  for (const r of records) byTicker.set(r.ticker, r);
+  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
+  tbody.innerHTML = unique.map(s => {
+    const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+    const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+    return `<tr>
+      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#22d3a0;padding:7px 8px;">${s.ticker}</td>
+      <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+      <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+      <td style="padding:7px 8px;color:#22d3a0;">${s.conviction}%</td>
+      <td id="mret-${s.ticker}-${new Date(s.detected_at).getTime()}" style="padding:7px 8px;color:var(--muted);">—</td>
+      <td style="padding:4px 8px;"><button onclick="hofAdminDelete('minervini_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
+    </tr>`;
+  }).join('');
+}
+
+async function loadMinerviniReturns() {
+  if (_minerviniReturnLoading) return;
+  _minerviniReturnLoading = true;
+  const btn = document.getElementById('minerviniHofReturnBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
+
+  const byTicker = new Map();
+  for (const r of _minerviniAdminRecords) byTicker.set(r.ticker, r);
+  const results = await Promise.all([...byTicker.values()].map(async s => {
+    try {
+      const data = await fetchStockData(s.ticker, '1d|5d');
+      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      if (!cur) return null;
+      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
+    } catch (_) { return null; }
+  }));
+  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
+  const tbody  = document.getElementById('minerviniHofTbody');
+  if (tbody && sorted.length) {
+    tbody.innerHTML = sorted.map(s => {
+      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
+      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
+      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
+      return `<tr>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#22d3a0;padding:7px 8px;">${s.ticker}</td>
+        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
+        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
+        <td style="padding:7px 8px;color:#22d3a0;">${s.conviction}%</td>
+        <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
+        <td style="padding:4px 8px;"><button onclick="hofAdminDelete('minervini_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  _minerviniReturnLoading = false;
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 

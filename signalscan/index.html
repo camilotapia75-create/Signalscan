@@ -167,6 +167,7 @@
           <button id="scanTabOriginal" onclick="switchScanTab('original')" style="background:var(--gold);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🐂 ORIGINAL</button>
           <button id="scanTabBullpen"  onclick="switchScanTab('bullpen')"  style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🧪 BULL PEN</button>
           <button id="scanTabStrict"   onclick="switchScanTab('strict')"   style="display:none;background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🎯 STRICT</button>
+          <button id="scanTabMinervini" onclick="switchScanTab('minervini')" style="display:none;background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">📈 MINERVINI</button>
         </div>
         <select id="scanTimeframe" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;outline:none;">
           <option value="1wk|1y">1Y WEEKLY</option>
@@ -175,6 +176,7 @@
         <button class="scan-btn" id="scanBtn" onclick="runScanner()">🔍 SCAN MARKET</button>
         <button class="scan-btn" id="bpScanBtn" onclick="runBullPenScanner()" style="display:none;background:rgba(255,140,80,0.12);border:1px solid rgba(255,140,80,0.4);color:#ff9055;">🧪 SCAN BULL PEN</button>
         <button class="scan-btn" id="strictScanBtn" onclick="runStrictScanner()" style="display:none;background:rgba(100,200,255,0.10);border:1px solid rgba(100,200,255,0.4);color:#64c8ff;">🎯 SCAN STRICT</button>
+        <button class="scan-btn" id="minerviniScanBtn" onclick="runMinerviniScanner()" style="display:none;background:rgba(34,211,160,0.10);border:1px solid rgba(34,211,160,0.4);color:#22d3a0;">📈 SCAN MINERVINI</button>
       </div>
     </div>
 
@@ -208,6 +210,24 @@
       <div id="bpEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
         <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🧪</div>
         <div style="font-size:12px;color:var(--muted);line-height:1.8;">No Bull Pen signals detected in current conditions.</div>
+      </div>
+    </div>
+
+    <!-- Minervini SEPA scanner panel (admin only) -->
+    <div id="scanPanelMinervini" style="display:none;">
+      <div style="background:rgba(34,211,160,0.06);border:1px solid rgba(34,211,160,0.22);padding:11px 16px;margin-bottom:20px;font-size:10px;color:rgba(34,211,160,0.9);letter-spacing:0.8px;line-height:1.8;">
+        📈 MINERVINI SEPA — Trend Template: price &gt; EMA50 &gt; EMA150 &gt; EMA200 (rising) · Top 25% of 52-week range · Price &gt;30% above 52-week low · RSI 45–82 · Volume accumulation · Relative strength vs SPY · Market regime gate. No mean-reversion. Only confirmed Stage 2 uptrends.
+      </div>
+      <div id="minerviniProgress" style="display:none;margin-bottom:20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="minerviniStatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="minerviniProgressCount">0 / 0</span></div>
+        <div class="scan-progress-bg"><div class="scan-progress-fill" id="minerviniProgressBar" style="background:linear-gradient(90deg,#0d9e77,#22d3a0);"></div></div>
+        <div style="font-size:10px;color:#22d3a0;margin-top:6px;letter-spacing:0.5px;min-height:14px;" id="minerviniFoundMsg"></div>
+      </div>
+      <div id="minerviniResultsHeader" style="display:none;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;"></div>
+      <div id="minerviniResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+      <div id="minerviniEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
+        <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">📈</div>
+        <div style="font-size:12px;color:var(--muted);line-height:1.8;">No stocks passed the Minervini Trend Template in current conditions.<br><span style="font-size:11px;">This is normal in bear markets or choppy conditions — the filter is strict by design.</span></div>
       </div>
     </div>
 
@@ -345,6 +365,28 @@
     <button id="strictHofReturnBtn" onclick="loadStrictReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(100,200,255,0.3);color:rgba(100,200,255,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#64c8ff';this.style.color='#64c8ff'" onmouseout="this.style.borderColor='rgba(100,200,255,0.3)';this.style.color='rgba(100,200,255,0.6)'">LOAD RETURNS</button>
   </div>
 
+  <!-- ── Minervini SEPA Hall of Fame (admin only) ─────────────────────────── -->
+  <div id="minerviniHofSection" style="display:none;padding:32px;border-top:1px solid rgba(34,211,160,0.3);">
+    <div id="minerviniHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#22d3a0;">📈 MINERVINI SEPA — HALL OF FAME</div>
+    <div id="minerviniHofSubtitle" style="font-size:10px;color:rgba(34,211,160,0.7);letter-spacing:1px;margin-bottom:20px;">TREND TEMPLATE · 0 TICKERS DETECTED</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid rgba(34,211,160,0.25);">
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
+            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">RETURN</th>
+            <th style="width:40px;"></th>
+          </tr>
+        </thead>
+        <tbody id="minerviniHofTbody"></tbody>
+      </table>
+    </div>
+    <button id="minerviniHofReturnBtn" onclick="loadMinerviniReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(34,211,160,0.3);color:rgba(34,211,160,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#22d3a0';this.style.color='#22d3a0'" onmouseout="this.style.borderColor='rgba(34,211,160,0.3)';this.style.color='rgba(34,211,160,0.6)'">LOAD RETURNS</button>
+  </div>
+
   <!-- ── Combined HoF (Scanner + Watchlist) ─────────────────────────────────── -->
   <div id="allHofSection" style="display:none;padding:32px;border-top:1px solid rgba(77,159,255,0.3);">
     <div id="allHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#4d9fff;">⚡ COMBINED HOF — SCANNER + WATCHLIST</div>
@@ -403,9 +445,9 @@
 <script src="js/config.js?v=32"></script>
 <script src="js/calc.js?v=46"></script>
 <script src="js/analysis.js?v=46"></script>
-<script src="js/scanner.js?v=48"></script>
+<script src="js/scanner.js?v=49"></script>
 <script src="js/app.js?v=46"></script>
-<script src="js/auth.js?v=46"></script>
+<script src="js/auth.js?v=49"></script>
 <script src="js/watchlist.js?v=46"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>

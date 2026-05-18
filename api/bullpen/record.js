@@ -1,6 +1,6 @@
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SVC = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const ALLOWED_BP_TABLES = new Set(['bull_pen_hof', 'bull_pen_strict_hof']);
+const ALLOWED_BP_TABLES = new Set(['bull_pen_hof', 'bull_pen_strict_hof', 'minervini_hof']);
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');

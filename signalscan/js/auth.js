@@ -113,16 +113,21 @@ function renderAuthState() {
   if (isSubscribed()) loadWatchlist();
   if (currentUser?.email === 'camilotapia75@gmail.com' && typeof renderHoF === 'function') {
     renderHoF();
-    if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
-    if (typeof renderAllHoF    === 'function') renderAllHoF();
-    if (typeof renderStrictHoF === 'function') renderStrictHoF();
-    const strictTab = document.getElementById('scanTabStrict');
-    if (strictTab) strictTab.style.display = '';
+    if (typeof renderBullPenHoF   === 'function') renderBullPenHoF();
+    if (typeof renderAllHoF       === 'function') renderAllHoF();
+    if (typeof renderStrictHoF    === 'function') renderStrictHoF();
+    if (typeof renderMinerviniHoF === 'function') renderMinerviniHoF();
+    const strictTab    = document.getElementById('scanTabStrict');
+    const minerviniTab = document.getElementById('scanTabMinervini');
+    if (strictTab)    strictTab.style.display    = '';
+    if (minerviniTab) minerviniTab.style.display = '';
   } else {
-    const strictTab = document.getElementById('scanTabStrict');
-    if (strictTab) strictTab.style.display = 'none';
-    // If strict tab was active and user logged out, fall back to original
-    if (typeof _activeScanTab !== 'undefined' && _activeScanTab === 'strict') {
+    const strictTab    = document.getElementById('scanTabStrict');
+    const minerviniTab = document.getElementById('scanTabMinervini');
+    if (strictTab)    strictTab.style.display    = 'none';
+    if (minerviniTab) minerviniTab.style.display = 'none';
+    if (typeof _activeScanTab !== 'undefined' &&
+        (_activeScanTab === 'strict' || _activeScanTab === 'minervini')) {
       if (typeof switchScanTab === 'function') switchScanTab('original');
     }
   }

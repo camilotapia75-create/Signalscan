@@ -4,7 +4,7 @@ const SUPABASE_URL  = process.env.SUPABASE_URL  || 'https://bhykfnuljzzimzmdjcia
 const SUPABASE_SVC  = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoeWtmbnVsanp6aW16bWRqY2lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0OTU0NDcsImV4cCI6MjA5MzA3MTQ0N30.Bl1Bigqc6iD8Pi1OTaMPNhRnrP6l4-vzcDoAo_acOUE';
 const ADMIN_EMAIL   = 'camilotapia75@gmail.com';
-const ALLOWED_TABLES = new Set(['golden_bull_hof', 'bull_pen_hof', 'bull_pen_strict_hof']);
+const ALLOWED_TABLES = new Set(['golden_bull_hof', 'bull_pen_hof', 'bull_pen_strict_hof', 'minervini_hof']);
 
 async function verifyAdmin(authHeader) {
   if (!authHeader?.startsWith('Bearer ')) return null;
