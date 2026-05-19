@@ -968,6 +968,10 @@ async function renderAllHoF() {
     if (titleEl)    titleEl.textContent    = '⚡ COMBINED HOF — SCANNER + WATCHLIST (ADMIN)';
     if (subtitleEl) subtitleEl.textContent = `${scannerCount} SCANNER · ${watchlistCount} WATCHLIST`;
     if (btn) btn.style.display = 'block';
+    if (!document.getElementById('allHofPurgeBtn') && subtitleEl) {
+      subtitleEl.insertAdjacentHTML('afterend',
+        `<button id="allHofPurgeBtn" onclick="purgeZeroReturnEntries()" style="margin-bottom:14px;background:rgba(255,68,102,0.12);border:1px solid rgba(255,68,102,0.4);color:#ff4466;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;">🗑 PURGE 0% ENTRIES</button>`);
+    }
     _renderHofAdminTable(records, 'allHofTbody');
     _allReturnLoading = false;
     loadAllHofReturns();
