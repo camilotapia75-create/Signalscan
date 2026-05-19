@@ -32,15 +32,28 @@ const SCAN_UNIVERSE_CORE = [
   'ZETA',
 ];
 
-// Rotation pool — 20 picked daily (quality names only, no speculative garbage)
+// Rotation pool — 25 picked daily (quality names only, no speculative garbage)
 const ROTATION_POOL = [
-  'INTU','VEEV','ZI','TWLO','NTNX','PSTG','MPWR','HPE',
-  'SWKS','QRVO','STX','WDC','KKR','APO','BX','MSCI',
-  'MCO','ROP','IDXX','ALGN','OXY','CTRA','ACN','SAP',
-  'ASML','KLAC','LRCX','AMAT','MU','ON','TXN',
-  'SYK','ELV','CI','TMO','DHR','GEHC',
-  'PWR','URI','DE','EMR','ITW','PH',
-  'DECK','ONON','ROST','TJX','ULTA',
+  // Semis & hardware
+  'INTU','MPWR','ASML','KLAC','LRCX','AMAT','MU','ON','TXN',
+  'LSCC','ACLS','ONTO','SWKS','QRVO','STX','WDC','PSTG','HPE',
+  // Cloud & SaaS
+  'VEEV','ZI','TWLO','NTNX','DUOL','PAYC','PCTY','IOT','FOUR','BILL',
+  // Fintech & alt finance
+  'KKR','APO','BX','MSCI','MCO','SQ','HOOD',
+  // Industrials (trend consistently, high institutional ownership)
+  'FAST','ODFL','SAIA','AME','ROK','WAB','FTV',
+  'PWR','URI','DE','EMR','ITW','PH','ROP',
+  // Defense & government IT
+  'LHX','LDOS','BAH','CACI',
+  // Healthcare (non-biotech quality)
+  'SYK','ELV','CI','DHR','GEHC','IDXX','ALGN','INSP','MEDP','MOH',
+  // Energy (quality trending)
+  'OXY','CTRA','LNG','MPC','VLO',
+  // Consumer & retail
+  'DECK','ROST','ULTA','DKNG',
+  // International quality ADRs
+  'ACN','SAP','CPNG','INFY','SE',
 ];
 
 function buildScanUniverse() {
@@ -52,7 +65,7 @@ function buildScanUniverse() {
     const j = Math.abs(s) % (i + 1);
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-  return [...SCAN_UNIVERSE_CORE, ...shuffled.slice(0, 20)];
+  return [...SCAN_UNIVERSE_CORE, ...shuffled.slice(0, 25)];
 }
 
 const SCAN_UNIVERSE = buildScanUniverse();
