@@ -99,15 +99,17 @@ async function quickAnalyzeForScan(ticker, spyReturn20d = null) {
     const indData = computeIndicators(data);
     if (!indData) return null;
 
-    const { rsi, macd, ema20, ema50, lastClose, atr } = indData;
+    const { rsi, ema20, ema50, lastClose, atr } = indData;
 
     if (lastClose < 10) return null;
 
     // ── Hard trend gates ──────────────────────────────────────────────────────
-    if (lastClose < ema50)         return null; // price below 50-day MA
-    if (ema20 < ema50)             return null; // EMA stack not aligned
-    if (rsi < 50 || rsi > 78)     return null; // must be in the bull zone (not just off oversold)
-    if (macd.histogram <= 0)       return null; // MACD momentum must be positive and building
+    // Critical: reversal signal must fire within an uptrend, not on a collapsing stock.
+    // A downtrending stock is always "oversold" before its next leg down — these gates
+    // ensure the dip is happening inside a healthy larger uptrend.
+    if (ema20 < ema50)             return null; // EMA stack must be bullish
+    if (lastClose < ema50 * 0.90)  return null; // >10% below 50MA = distribution, not a dip
+    if (rsi < 30 || rsi > 82)      return null; // RSI<30 = possible breakdown, not just oversold
 
     // Long-term trend: price above 200-day MA
     if (closes.length >= 200) {
@@ -118,33 +120,31 @@ async function quickAnalyzeForScan(ticker, spyReturn20d = null) {
     const highs    = data.highs.filter(Boolean);
     const lows     = data.lows.filter(Boolean);
     const yearHigh = Math.max(...highs);
-    const yearLow  = Math.min(...lows);
 
-    // Must be a momentum leader — within 20% of 52-week high (not a laggard)
-    if ((yearHigh - lastClose) / yearHigh > 0.20) return null;
-
-    // Must outperform SPY over 20 days by at least +3% — market leaders only
-    if (spyReturn20d !== null && closes.length >= 21) {
-      const stockRet20d = (lastClose - closes[closes.length - 21]) / closes[closes.length - 21] * 100;
-      if (stockRet20d < spyReturn20d + 3) return null;
-    }
+    // Within 25% of 52-week high — no persistent laggards
+    if ((yearHigh - lastClose) / yearHigh > 0.25) return null;
 
     const sr   = findSupportResistance(highs, lows, closes);
     const pa   = analyzePriceAction(data);
+    // Reversal = local dip / oversold condition
+    // Continuation = larger uptrend still intact
+    // Together: "oversold dip within a confirmed uptrend" = buy the dip
+    const rev  = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
 
-    if (cont.score <= 0.60) return null;
+    if (rev.score <= 0.38 || cont.score <= 0.48) return null;
 
-    const conviction   = Math.round(Math.min(100, Math.max(60, 60 + (cont.score - 0.60) / 0.40 * 40)));
-    const topSignal    = cont.keySignals[0]?.text || '';
-    const spark        = closes.slice(-30);
-    const stopPrice    = Math.max(ema20 * 0.99, lastClose - atr * 1.5);
-    const nearestRes   = sr.resistance.filter(r => r.price > lastClose)[0];
+    const conviction = Math.round(Math.min(100, Math.max(60, 60 + (rev.score + cont.score - 0.86) / 0.74 * 40)));
+    const topSignal  = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
+    const spark      = closes.slice(-30);
+    const stopPrice  = Math.max(ema20 * 0.985, lastClose - atr * 1.5);
+    const nearestRes = sr.resistance.filter(r => r.price > lastClose)[0];
     const estimatedUpside = nearestRes
       ? (nearestRes.price - lastClose) / lastClose * 100
       : Math.max(0, (yearHigh - lastClose) / lastClose * 100);
 
-    return { ticker, price: lastClose, isGoldenBull: true, conviction, topSignal, contScore: cont.score, spark, estimatedUpside, stopPrice };
+    console.log(`[SCAN] ${ticker}: rev=${rev.score.toFixed(2)} cont=${cont.score.toFixed(2)} rsi=${rsi.toFixed(1)} => ⚡ GOLDEN BULL`);
+    return { ticker, price: lastClose, isGoldenBull: true, conviction, topSignal, revScore: rev.score, contScore: cont.score, spark, estimatedUpside, stopPrice };
   } catch (e) {
     console.error(`[SCAN] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
