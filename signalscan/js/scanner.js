@@ -545,12 +545,15 @@ async function wipeAllHof() {
       signal: AbortSignal.timeout(20000),
     });
     const d = await res.json();
-    if (!res.ok) { alert(`Wipe failed: ${d.error}`); return; }
+    if (!res.ok) { alert(`Wipe failed: ${d.error}\nDetails: ${JSON.stringify(d.failed)}`); return; }
 
     // Clear localStorage caches too
     [HOF_KEY, HOF_PENDING_KEY, BP_HOF_KEY].forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
 
-    alert(`All HOF tables cleared. Fresh start from today.\nTables wiped: ${d.wiped.join(', ')}`);
+    const msg = d.wiped.length
+      ? `Cleared: ${d.wiped.join(', ')}${d.failed?.length ? `\nSkipped (not yet created): ${d.failed.map(f=>f.table).join(', ')}` : ''}`
+      : 'No tables were wiped.';
+    alert(msg);
     renderHoF();
     renderBullPenHoF();
     renderAllHoF();

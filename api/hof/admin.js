@@ -32,17 +32,22 @@ export default async function handler(req, res) {
 
   // ── WIPE ALL HOF TABLES ───────────────────────────────────────────────────
   if (action === 'wipe-all') {
-    const results = [];
+    const wiped = [], failed = [];
     for (const table of ALLOWED_TABLES) {
-      const r = await fetch(
-        `${SUPABASE_URL}/rest/v1/${table}?id=gte.1`,
-        { method: 'DELETE', headers: { apikey: svcKey, Authorization: svcAuth }, signal: AbortSignal.timeout(15000) }
-      );
-      results.push({ table, ok: r.ok, status: r.status });
+      try {
+        // detected_at=gte.1970-01-01 matches every row; more reliable than id=gte.1
+        const r = await fetch(
+          `${SUPABASE_URL}/rest/v1/${table}?detected_at=gte.1970-01-01`,
+          { method: 'DELETE', headers: { apikey: svcKey, Authorization: svcAuth, Prefer: 'return=minimal' }, signal: AbortSignal.timeout(12000) }
+        );
+        if (r.ok || r.status === 204) wiped.push(table);
+        else { const body = await r.text().catch(() => r.status); failed.push({ table, error: body }); }
+      } catch (e) {
+        failed.push({ table, error: e.message });
+      }
     }
-    const failed = results.filter(r => !r.ok);
-    if (failed.length) return res.status(500).json({ error: 'Some tables failed', results });
-    return res.status(200).json({ wiped: results.map(r => r.table) });
+    if (!wiped.length) return res.status(500).json({ error: 'All tables failed', failed });
+    return res.status(200).json({ wiped, failed });
   }
 
   // ── DELETE BY ID (precise — used by purge to avoid wiping all ticker entries) ──
