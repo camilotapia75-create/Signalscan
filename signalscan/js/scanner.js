@@ -525,6 +525,35 @@ function _adminSrcBadge(source) {
   return ''; // scanner (default) and legacy show no badge
 }
 
+async function restoreHofTickers(tickers, table = 'golden_bull_hof') {
+  const session = (await getSupabase().auth.getSession()).data?.session;
+  if (!session?.access_token) { alert('Not authenticated.'); return; }
+
+  const results = [];
+  for (const ticker of tickers) {
+    try {
+      const data = await fetchStockData(ticker, '1d|5d');
+      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
+      if (!cur) { console.warn(`[RESTORE] ${ticker}: price unavailable, skipping`); continue; }
+      results.push({ ticker, price: cur, conviction: 75 });
+    } catch (e) { console.warn(`[RESTORE] ${ticker}: fetch failed —`, e.message); }
+  }
+
+  if (!results.length) { alert('Could not fetch prices for any of the tickers.'); return; }
+
+  const res = await fetch('/api/hof/admin', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ action: 'batch-insert', signals: results.map(r => ({ ...r, source: 'scanner' })) }),
+    signal: AbortSignal.timeout(15000),
+  });
+  const d = await res.json();
+  if (!res.ok) { alert(`Restore failed: ${d.error}`); return; }
+  alert(`Restored ${d.inserted} ticker(s): ${results.map(r => `${r.ticker} @ $${r.price.toFixed(2)}`).join(', ')}`);
+  renderHoF();
+  renderAllHoF();
+}
+
 async function purgeZeroReturnEntries() {
   const btn = document.getElementById('purgeZeroBtn');
   if (btn) { btn.disabled = true; btn.textContent = 'SCANNING...'; }
