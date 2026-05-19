@@ -525,6 +525,84 @@ function _adminSrcBadge(source) {
   return ''; // scanner (default) and legacy show no badge
 }
 
+async function purgeZeroReturnEntries() {
+  const btn = document.getElementById('purgeZeroBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'SCANNING...'; }
+
+  const session = (await getSupabase().auth.getSession()).data?.session;
+  if (!session?.access_token) { alert('Not authenticated.'); if (btn) { btn.disabled = false; btn.textContent = '🗑 PURGE 0% ENTRIES'; } return; }
+
+  const TABLES = ['golden_bull_hof', 'bull_pen_hof', 'bull_pen_strict_hof', 'minervini_hof'];
+  const SUPABASE_URL  = window.SIGNALSCAN_CONFIG?.supabaseUrl || 'https://bhykfnuljzzimzmdjcia.supabase.co';
+  const SUPABASE_ANON = window.SIGNALSCAN_CONFIG?.supabaseAnonKey;
+
+  const toDelete = []; // { table, ticker }
+  if (btn) btn.textContent = 'FETCHING PRICES...';
+
+  for (const table of TABLES) {
+    try {
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/${table}?select=ticker,signal_price,detected_at&order=detected_at.desc&limit=500`, {
+        headers: { apikey: SUPABASE_ANON, Authorization: `Bearer ${session.access_token}` },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!r.ok) continue;
+      const records = await r.json();
+      if (!Array.isArray(records)) continue;
+
+      // Unique tickers to batch-fetch prices
+      const uniq = [...new Set(records.map(x => x.ticker))];
+      const prices = {};
+      await Promise.all(uniq.map(async t => {
+        try {
+          const d = await fetchStockData(t, '1d|5d');
+          const cur = d?.closes?.filter(Boolean).slice(-1)[0];
+          if (cur) prices[t] = cur;
+        } catch (_) {}
+      }));
+
+      for (const rec of records) {
+        const cur = prices[rec.ticker];
+        if (!cur) continue; // price unavailable — skip (don't delete blindly)
+        const pct = (cur - parseFloat(rec.signal_price)) / parseFloat(rec.signal_price) * 100;
+        if (Math.abs(pct) < 0.1) toDelete.push({ table, ticker: rec.ticker });
+      }
+    } catch (_) {}
+  }
+
+  if (!toDelete.length) {
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 PURGE 0% ENTRIES'; }
+    alert('No 0% entries found across all HOFs.');
+    return;
+  }
+
+  const uniq = [...new Map(toDelete.map(x => [`${x.table}:${x.ticker}`, x])).values()];
+  if (!confirm(`Delete ${uniq.length} entry/entries showing 0% return?\n\n${uniq.map(x => `${x.ticker} (${x.table})`).join('\n')}`)) {
+    if (btn) { btn.disabled = false; btn.textContent = '🗑 PURGE 0% ENTRIES'; }
+    return;
+  }
+
+  if (btn) btn.textContent = `DELETING ${uniq.length}...`;
+  let deleted = 0;
+  for (const { table, ticker } of uniq) {
+    try {
+      const res = await fetch('/api/hof/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ action: 'delete', table, ticker }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) deleted++;
+    } catch (_) {}
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = '🗑 PURGE 0% ENTRIES'; }
+  alert(`Purged ${deleted} of ${uniq.length} entries. Refreshing HOFs...`);
+  renderHoF();
+  renderBullPenHoF();
+  if (typeof renderStrictHoF   === 'function') renderStrictHoF();
+  if (typeof renderMinerviniHoF === 'function') renderMinerviniHoF();
+}
+
 async function hofAdminDelete(table, ticker) {
   if (!confirm(`Remove ALL ${ticker} entries from ${table}?`)) return;
   const session = (await getSupabase().auth.getSession()).data?.session;
@@ -574,6 +652,7 @@ function _injectAdminHofAddForm() {
     </div>
     <div style="margin-top:10px;">
       <button onclick="adminReScanToHof()" style="background:rgba(255,204,68,0.12);border:1px solid rgba(255,204,68,0.4);color:var(--gold);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">🔁 RESCAN ALL TICKERS → HOF</button>
+      <button id="purgeZeroBtn" onclick="purgeZeroReturnEntries()" style="background:rgba(255,68,102,0.12);border:1px solid rgba(255,68,102,0.4);color:#ff4466;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">🗑 PURGE 0% ENTRIES</button>
       <span style="font-size:9px;color:var(--muted);margin-left:10px;">Detects all current golden bulls and force-adds them (bypasses 7-day dedup)</span>
     </div>
     <div id="aHofMsg" style="font-size:10px;margin-top:8px;letter-spacing:0.5px;min-height:14px;"></div>
