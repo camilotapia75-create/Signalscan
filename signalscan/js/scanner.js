@@ -1288,7 +1288,7 @@ async function runBullPenScanner() {
     emptyId:   'bpEmpty',        headerId:   'bpResultsHeader', foundMsgId:'bpFoundMsg',
     statusId:  'bpStatusText',   countId:    'bpProgressCount', barId:     'bpProgressBar',
     btnLabel:  '🧪 SCAN AGAIN',
-  }, (t) => quickAnalyzeForScanV2(t, spyReturn), hofRecordBullPen, renderBullPenHoF);
+  }, (t) => quickAnalyzeForScanV2(t, spyReturn), hofRecordBullPen, renderBullPenHoF, 'bullpen');
 }
 
 async function hofRecordBullPen(bulls) {
