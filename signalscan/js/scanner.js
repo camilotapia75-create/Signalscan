@@ -525,6 +525,44 @@ function _adminSrcBadge(source) {
   return ''; // scanner (default) and legacy show no badge
 }
 
+async function wipeAllHof() {
+  const confirmed = prompt(
+    'This permanently deletes ALL entries from ALL HOF tables and cannot be undone.\n\nType WIPE to confirm:'
+  );
+  if (confirmed?.trim() !== 'WIPE') { alert('Cancelled.'); return; }
+
+  const session = (await getSupabase().auth.getSession()).data?.session;
+  if (!session?.access_token) { alert('Not authenticated.'); return; }
+
+  const btn = document.getElementById('wipeHofBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'WIPING...'; }
+
+  try {
+    const res = await fetch('/api/hof/admin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ action: 'wipe-all' }),
+      signal: AbortSignal.timeout(20000),
+    });
+    const d = await res.json();
+    if (!res.ok) { alert(`Wipe failed: ${d.error}`); return; }
+
+    // Clear localStorage caches too
+    [HOF_KEY, HOF_PENDING_KEY, BP_HOF_KEY].forEach(k => { try { localStorage.removeItem(k); } catch (_) {} });
+
+    alert(`All HOF tables cleared. Fresh start from today.\nTables wiped: ${d.wiped.join(', ')}`);
+    renderHoF();
+    renderBullPenHoF();
+    renderAllHoF();
+    if (typeof renderStrictHoF    === 'function') renderStrictHoF();
+    if (typeof renderMinerviniHoF === 'function') renderMinerviniHoF();
+  } catch (e) {
+    alert(`Wipe error: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '☢ WIPE ALL HOF'; }
+  }
+}
+
 async function restoreHofTickers(tickers, table = 'golden_bull_hof') {
   const session = (await getSupabase().auth.getSession()).data?.session;
   if (!session?.access_token) { alert('Not authenticated.'); return; }
@@ -683,6 +721,7 @@ function _injectAdminHofAddForm() {
     <div style="margin-top:10px;">
       <button onclick="adminReScanToHof()" style="background:rgba(255,204,68,0.12);border:1px solid rgba(255,204,68,0.4);color:var(--gold);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">🔁 RESCAN ALL TICKERS → HOF</button>
       <button id="purgeZeroBtn" onclick="purgeZeroReturnEntries()" style="background:rgba(255,68,102,0.12);border:1px solid rgba(255,68,102,0.4);color:#ff4466;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">🗑 PURGE 0% ENTRIES</button>
+      <button id="wipeHofBtn" onclick="wipeAllHof()" style="background:rgba(255,30,30,0.15);border:1px solid rgba(255,30,30,0.5);color:#ff2222;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">☢ WIPE ALL HOF</button>
       <span style="font-size:9px;color:var(--muted);margin-left:10px;">Detects all current golden bulls and force-adds them (bypasses 7-day dedup)</span>
     </div>
     <div id="aHofMsg" style="font-size:10px;margin-top:8px;letter-spacing:0.5px;min-height:14px;"></div>

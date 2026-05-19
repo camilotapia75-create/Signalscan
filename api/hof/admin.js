@@ -30,6 +30,21 @@ export default async function handler(req, res) {
   const svcKey  = SUPABASE_SVC;
   const svcAuth = `Bearer ${SUPABASE_SVC}`;
 
+  // ── WIPE ALL HOF TABLES ───────────────────────────────────────────────────
+  if (action === 'wipe-all') {
+    const results = [];
+    for (const table of ALLOWED_TABLES) {
+      const r = await fetch(
+        `${SUPABASE_URL}/rest/v1/${table}?id=gte.1`,
+        { method: 'DELETE', headers: { apikey: svcKey, Authorization: svcAuth }, signal: AbortSignal.timeout(15000) }
+      );
+      results.push({ table, ok: r.ok, status: r.status });
+    }
+    const failed = results.filter(r => !r.ok);
+    if (failed.length) return res.status(500).json({ error: 'Some tables failed', results });
+    return res.status(200).json({ wiped: results.map(r => r.table) });
+  }
+
   // ── DELETE BY ID (precise — used by purge to avoid wiping all ticker entries) ──
   if (action === 'delete-by-id') {
     const { table, id } = req.body;
