@@ -1044,10 +1044,10 @@ async function quickAnalyzeForScanV2(ticker, spyReturn) {
 
     if (lastClose < 5) return null;
 
-    // Hard trend gates — must be in uptrend to qualify
-    if (lastClose < ema20)       return null; // price below EMA20
-    if (ema20 < ema50)           return null; // EMA stack not aligned
-    if (rsi < 40 || rsi > 82)   return null; // outside bull zone
+    // Hard trend gates — same logic as Golden Bull: dip must be inside an uptrend
+    if (ema20 < ema50)             return null; // EMA stack must be bullish
+    if (lastClose < ema50 * 0.90)  return null; // >10% below 50MA = distribution, not a dip
+    if (rsi < 28 || rsi > 85)      return null; // allow deeper dips than Golden Bull (more experimental)
 
     const highs   = data.highs.filter(Boolean);
     const lows    = data.lows.filter(Boolean);
@@ -1061,43 +1061,43 @@ async function quickAnalyzeForScanV2(ticker, spyReturn) {
 
     const sr   = findSupportResistance(highs, lows, closes);
     const pa   = analyzePriceAction(data);
+    // Same dual-score philosophy as Golden Bull but slightly lower bar (experimental engine)
+    const rev  = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
 
+    let revScore  = rev.score;
     let contScore = cont.score;
 
-    // Breakout near 52-week high with real volume (not a blind bonus — stock must already pass gates)
+    // Momentum bonuses — applied on top of base scores (stock already passed trend gates)
     const near52High = (yearHigh - lastClose) / yearHigh < 0.08;
     if (near52High && volRatio > 1.5) contScore = Math.min(1, contScore + 0.12);
 
-    // Short-term ATR expansion vs 14-day ATR = volatility breakout
     const atrShort = calcATR(highs, lows, closes, 5);
     if (atrShort > atr * 1.25 && lastClose > ema20) contScore = Math.min(1, contScore + 0.10);
 
-    // Relative strength vs SPY — 20-day return
     if (spyReturn !== null && closes.length >= 21) {
-      const stockReturn = (lastClose - closes[closes.length - 21]) / closes[closes.length - 21] * 100;
-      const rsVsSpy = stockReturn - spyReturn;
+      const rsVsSpy = (lastClose - closes[closes.length - 21]) / closes[closes.length - 21] * 100 - spyReturn;
       if (rsVsSpy > 8)        contScore = Math.min(1, contScore + 0.15);
       else if (rsVsSpy > 4)   contScore = Math.min(1, contScore + 0.08);
       else if (rsVsSpy < -10) contScore = Math.max(-1, contScore - 0.20);
     }
 
-    const isGoldenBull = contScore > 0.45;
-    if (!isGoldenBull) return null;
+    // Slightly lower thresholds than Golden Bull — catches earlier/wider signals
+    if (revScore <= 0.32 || contScore <= 0.42) return null;
 
-    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (contScore - 0.45) / 0.55 * 50)));
-    const stopPrice  = Math.max(ema20 * 0.99, lastClose - atr * 1.5);
+    const conviction = Math.round(Math.min(100, Math.max(50, 50 + (revScore + contScore - 0.74) / 0.86 * 50)));
+    const stopPrice  = Math.max(ema20 * 0.985, lastClose - atr * 1.5);
 
-    console.log(`[BULL PEN] ${ticker}: cont=${contScore.toFixed(2)} rsi=${rsi.toFixed(1)} => 🧪 BULL`);
+    console.log(`[BULL PEN] ${ticker}: rev=${revScore.toFixed(2)} cont=${contScore.toFixed(2)} rsi=${rsi.toFixed(1)} => 🧪 BULL`);
 
-    const topSignal = cont.keySignals[0]?.text || '';
+    const topSignal = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
     const spark = closes.slice(-30);
     const nearestRes = sr.resistance.filter(r => r.price > lastClose)[0];
     const estimatedUpside = nearestRes
       ? (nearestRes.price - lastClose) / lastClose * 100
       : Math.max(0, (yearHigh - lastClose) / lastClose * 100);
 
-    return { ticker, price: lastClose, isGoldenBull, conviction, topSignal, contScore, spark, estimatedUpside, stopPrice };
+    return { ticker, price: lastClose, isGoldenBull: true, conviction, topSignal, revScore, contScore, spark, estimatedUpside, stopPrice };
   } catch (e) {
     console.error(`[BULL PEN] ${ticker}: failed —`, e.message);
     return { _networkFail: true };
