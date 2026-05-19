@@ -30,7 +30,20 @@ export default async function handler(req, res) {
   const svcKey  = SUPABASE_SVC;
   const svcAuth = `Bearer ${SUPABASE_SVC}`;
 
-  // ── DELETE ────────────────────────────────────────────────────────────────
+  // ── DELETE BY ID (precise — used by purge to avoid wiping all ticker entries) ──
+  if (action === 'delete-by-id') {
+    const { table, id } = req.body;
+    if (!ALLOWED_TABLES.has(table)) return res.status(400).json({ error: 'Invalid table' });
+    if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid id' });
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`,
+      { method: 'DELETE', headers: { apikey: svcKey, Authorization: svcAuth }, signal: AbortSignal.timeout(8000) }
+    );
+    if (!r.ok) return res.status(500).json({ error: `Delete failed: ${r.status}` });
+    return res.status(200).json({ deleted: id, table });
+  }
+
+  // ── DELETE (all entries for a ticker) ─────────────────────────────────────
   if (action === 'delete') {
     const { table, ticker } = req.body;
     if (!ALLOWED_TABLES.has(table)) return res.status(400).json({ error: 'Invalid table' });
