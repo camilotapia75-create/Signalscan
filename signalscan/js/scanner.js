@@ -133,7 +133,10 @@ async function quickAnalyzeForScan(ticker, spyReturn20d = null) {
     const rev  = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
 
-    if (rev.score <= 0.40 || cont.score <= 0.45) return null;
+    if (rev.score <= 0.40 || cont.score <= 0.45) {
+      console.log(`[SCAN] ${ticker}: rev=${rev.score.toFixed(2)} cont=${cont.score.toFixed(2)} rsi=${rsi.toFixed(1)} => filtered (need rev>0.40 AND cont>0.45)`);
+      return null;
+    }
 
     const conviction = Math.round(Math.min(100, Math.max(60, 60 + (rev.score + cont.score - 0.85) / 0.65 * 40)));
     const topSignal  = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
