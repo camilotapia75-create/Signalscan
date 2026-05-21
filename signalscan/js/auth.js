@@ -197,7 +197,13 @@ async function handleLogin(e) {
 
   btn.disabled = true; btn.textContent = 'Signing in...';
   try {
-    const { error } = await getSupabase().auth.signInWithPassword({ email, password });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timed out — please try again.')), 12000)
+    );
+    const { error } = await Promise.race([
+      getSupabase().auth.signInWithPassword({ email, password }),
+      timeoutPromise,
+    ]);
     if (error) throw error;
     hideAuthModal();
   } catch (err) {
@@ -215,7 +221,13 @@ async function handleSignup(e) {
 
   btn.disabled = true; btn.textContent = 'Creating account...';
   try {
-    const { data, error } = await getSupabase().auth.signUp({ email, password });
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection timed out — please try again.')), 12000)
+    );
+    const { data, error } = await Promise.race([
+      getSupabase().auth.signUp({ email, password }),
+      timeoutPromise,
+    ]);
     if (error) throw error;
     if (data.session) {
       // Email confirmation is off — user is immediately logged in
