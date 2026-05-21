@@ -1406,18 +1406,33 @@ async function renderBullPenHoF() {
     if (gen !== _bpRenderGen) return;
     if (error) throw error;
 
-    if (!records?.length) { section.style.display = 'none'; return; }
-
     section.style.display = 'block';
     const titleEl    = document.getElementById('bpHofTitle');
     const subtitleEl = document.getElementById('bpHofSubtitle');
     const btn        = document.getElementById('bpHofReturnBtn');
+
+    if (!records?.length) {
+      if (isAdmin) {
+        if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HALL OF FAME — ADMIN';
+        if (subtitleEl) subtitleEl.textContent = 'ADMIN VIEW — 0 SIGNALS';
+        if (btn) btn.style.display = 'none';
+        if (!document.getElementById('bpRestoreBtn') && subtitleEl) {
+          subtitleEl.insertAdjacentHTML('afterend',
+            `<button id="bpRestoreBtn" onclick="restoreHofFromScreenshots()" style="margin:8px 0 14px;background:rgba(68,255,160,0.10);border:1px solid rgba(68,255,160,0.35);color:#44ffa0;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;">📸 RESTORE FROM SCREENSHOTS</button>`);
+        }
+      } else { section.style.display = 'none'; }
+      return;
+    }
 
     if (isAdmin) {
       _bpAdminRecords = records;
       if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HALL OF FAME — ADMIN';
       if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ALL ${records.length} SIGNALS`;
       if (btn) btn.style.display = 'block';
+      if (!document.getElementById('bpRestoreBtn') && subtitleEl) {
+        subtitleEl.insertAdjacentHTML('afterend',
+          `<button id="bpRestoreBtn" onclick="restoreHofFromScreenshots()" style="margin:8px 0 14px;background:rgba(68,255,160,0.10);border:1px solid rgba(68,255,160,0.35);color:#44ffa0;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;">📸 RESTORE FROM SCREENSHOTS</button>`);
+      }
       _renderBullPenAdminTable(records);
       _bpReturnLoading = false;
       loadBullPenReturns();
