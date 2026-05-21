@@ -110,7 +110,7 @@ function renderAuthState() {
 
   renderProGate();
   updateAds();
-  if (isSubscribed() || currentUser?.email === 'camilotapia75@gmail.com') loadWatchlist();
+  if ((isSubscribed() || currentUser?.email === 'camilotapia75@gmail.com') && typeof loadWatchlist === 'function') loadWatchlist();
   if (currentUser?.email === 'camilotapia75@gmail.com' && typeof renderHoF === 'function') {
     renderHoF();
     if (typeof renderBullPenHoF   === 'function') renderBullPenHoF();
