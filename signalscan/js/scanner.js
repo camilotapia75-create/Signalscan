@@ -174,6 +174,7 @@ async function _runScanCore(tickers, ids, analyzeFn, recordFn, renderFn, hofSour
   const countEl  = document.getElementById(countId);
   const statusEl = document.getElementById(statusId);
   const foundMsg = document.getElementById(foundMsgId);
+  if (foundMsg) foundMsg.textContent = '';
 
   if (countEl) countEl.textContent = `0 / ${total}`;
   console.log(`[SCANNER] Starting scan of ${total} tickers using ${getScanTimeframe()}`);
