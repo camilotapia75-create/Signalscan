@@ -434,6 +434,7 @@ async function renderHoF() {
         const tbody = document.getElementById('hofTbody');
         if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:14px 8px;color:var(--muted);font-size:10px;letter-spacing:1px;">No signals yet. Run a Golden Bull scan to populate.</td></tr>';
         if (btn) btn.style.display = 'none';
+        _injectAdminHofAddForm();
       } else {
         _hofAdminRecords = [];
         _renderHofLegacy();
