@@ -501,7 +501,7 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
       const color  = s.pct != null ? (s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)') : 'var(--muted)';
       const pctStr = s.pct != null ? `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%` : '—';
       return `<tr>
-        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
+        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}${_adminSrcBadge(s.source)}</td>
         <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
         <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
         <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
