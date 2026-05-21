@@ -38,6 +38,11 @@ function headerLoginClick() {
 async function initAuth() {
   const sb = getSupabase();
 
+  // Render HOF immediately — public data, no auth needed, don't wait for getSession
+  if (typeof renderHoF        === 'function') renderHoF();
+  if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
+  if (typeof renderAllHoF     === 'function') renderAllHoF();
+
   // Timeout ensures a hung network request doesn't prevent onAuthStateChange from
   // being registered — which would leave the whole auth system dead on page load.
   try {
@@ -112,20 +117,22 @@ function renderAuthState() {
   renderProGate();
   updateAds();
   if ((isSubscribed() || currentUser?.email === 'camilotapia75@gmail.com') && typeof loadWatchlist === 'function') loadWatchlist();
-  if (currentUser?.email === 'camilotapia75@gmail.com' && typeof renderHoF === 'function') {
-    renderHoF();
-    if (typeof renderBullPenHoF   === 'function') renderBullPenHoF();
-    if (typeof renderAllHoF       === 'function') renderAllHoF();
+
+  // HOF is public — re-render for everyone so admin controls appear when logged in
+  if (typeof renderHoF        === 'function') renderHoF();
+  if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
+  if (typeof renderAllHoF     === 'function') renderAllHoF();
+
+  // Strict + Minervini tabs are admin-only
+  const strictTab    = document.getElementById('scanTabStrict');
+  const minerviniTab = document.getElementById('scanTabMinervini');
+  if (currentUser?.email === 'camilotapia75@gmail.com') {
     if (typeof renderStrictHoF    === 'function') renderStrictHoF();
     if (typeof renderMinerviniHoF === 'function') renderMinerviniHoF();
-    const strictTab    = document.getElementById('scanTabStrict');
-    const minerviniTab = document.getElementById('scanTabMinervini');
-    if (strictTab)    strictTab.style.display    = '';
+    if (strictTab)    strictTab.style.display = '';
     if (minerviniTab) minerviniTab.style.display = '';
   } else {
-    const strictTab    = document.getElementById('scanTabStrict');
-    const minerviniTab = document.getElementById('scanTabMinervini');
-    if (strictTab)    strictTab.style.display    = 'none';
+    if (strictTab)    strictTab.style.display = 'none';
     if (minerviniTab) minerviniTab.style.display = 'none';
     if (typeof _activeScanTab !== 'undefined' &&
         (_activeScanTab === 'strict' || _activeScanTab === 'minervini')) {
