@@ -121,7 +121,6 @@ function renderAuthState() {
   }
 
   renderProGate();
-  updateAds();
   if ((isSubscribed() || currentUser?.email === 'camilotapia75@gmail.com') && typeof loadWatchlist === 'function') loadWatchlist();
 
   // HOF is public — re-render for everyone so admin controls appear when logged in
@@ -147,14 +146,6 @@ function renderAuthState() {
   }
 }
 
-let _adInjected = false;
-
-function updateAds() {
-  // Ads disabled
-  const el = document.getElementById('_monetag');
-  if (el) el.remove();
-  _adInjected = false;
-}
 
 function renderProGate() {
   const gate       = document.getElementById('proGate');
