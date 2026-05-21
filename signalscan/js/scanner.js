@@ -133,8 +133,8 @@ async function quickAnalyzeForScan(ticker, spyReturn20d = null) {
     const rev  = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
 
-    if (rev.score <= 0.40 || cont.score <= 0.45) {
-      console.log(`[SCAN] ${ticker}: rev=${rev.score.toFixed(2)} cont=${cont.score.toFixed(2)} rsi=${rsi.toFixed(1)} => filtered (need rev>0.40 AND cont>0.45)`);
+    if (rev.bias !== 'BULLISH' || cont.bias !== 'BULLISH') {
+      console.log(`[SCAN] ${ticker}: rev=${rev.bias}(${rev.score.toFixed(2)}) cont=${cont.bias}(${cont.score.toFixed(2)}) => filtered (need both BULLISH)`);
       return null;
     }
 
@@ -1329,8 +1329,10 @@ async function quickAnalyzeForScanV2(ticker, spyReturn) {
       else if (rsVsSpy < -10) contScore = Math.max(-1, contScore - 0.20);
     }
 
-    // Slightly lower thresholds than Golden Bull — catches earlier/wider signals
-    if (revScore <= 0.32 || contScore <= 0.42) return null;
+    if (rev.bias !== 'BULLISH' || cont.bias !== 'BULLISH') {
+      console.log(`[BULL PEN] ${ticker}: rev=${rev.bias}(${revScore.toFixed(2)}) cont=${cont.bias}(${contScore.toFixed(2)}) => filtered`);
+      return null;
+    }
 
     const conviction = Math.round(Math.min(100, Math.max(50, 50 + (revScore + contScore - 0.74) / 0.86 * 50)));
     const stopPrice  = Math.max(ema20 * 0.985, lastClose - atr * 1.5);
