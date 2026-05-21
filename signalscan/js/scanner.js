@@ -450,7 +450,7 @@ async function renderHoF() {
       const legacyCount    = records.filter(r => !r.source).length;
       const uniqueCount    = new Set(records.map(r => r.ticker)).size;
       if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HOF — ADMIN';
-      if (subtitleEl) subtitleEl.textContent = `${uniqueCount} TICKERS · ${scannerTagged} SCANNER · ${watchlistCount} WATCHLIST · ${legacyCount} LEGACY`;
+      if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ${uniqueCount} TICKERS · ${watchlistCount} WATCHLIST`;
       if (btn) btn.style.display = 'block';
       _injectAdminHofAddForm();
       _renderHofAdminTable(records);
@@ -524,6 +524,81 @@ function _adminSrcBadge(source) {
   if (source === 'watchlist') return '<br><span style="font-size:8px;color:#4d9fff;letter-spacing:0.5px;">WATCHLIST</span>';
   if (source === 'manual')    return '<br><span style="font-size:8px;color:var(--gold);letter-spacing:0.5px;">MANUAL</span>';
   return ''; // scanner (default) and legacy show no badge
+}
+
+async function restoreHofFromScreenshots() {
+  const btn = document.getElementById('restoreHofBtn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Restoring...'; }
+  const session = await getSupabase().auth.getSession();
+  const token = session.data.session?.access_token;
+  if (!token) { alert('Not logged in'); if (btn) { btn.disabled = false; btn.textContent = '📸 RESTORE FROM SCREENSHOTS'; } return; }
+
+  const ins = async (table, ticker, price, conviction, source, detectedAt) => {
+    try {
+      const r = await fetch('/api/hof/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'insert', table, ticker, price, conviction, source, detectedAt }),
+      });
+      return r.ok;
+    } catch (_) { return false; }
+  };
+
+  const gb = 'golden_bull_hof', bp = 'bull_pen_hof';
+  const entries = [
+    [gb,'NBIS',   97.00,    72,'watchlist','2026-04-01'],
+    [gb,'DDOG',   135.50,   72,'scanner',  '2026-04-30'],
+    [gb,'PANW',   183.98,   66,'scanner',  '2026-05-05'],
+    [gb,'CRWD',   476.53,   62,'scanner',  '2026-05-05'],
+    [gb,'ZETA',   17.85,    63,'scanner',  '2026-05-05'],
+    [gb,'IONQ',   48.00,    59,'scanner',  '2026-05-05'],
+    [gb,'MARA',   12.16,    66,'scanner',  '2026-05-05'],
+    [gb,'ORCL',   185.35,   57,'scanner',  '2026-05-05'],
+    [gb,'AFRM',   66.81,    59,'scanner',  '2026-05-05'],
+    [gb,'PINS',   22.28,    68,'scanner',  '2026-05-05'],
+    [gb,'BRZE',   24.33,    68,'scanner',  '2026-05-05'],
+    [gb,'CEG',    320.42,   63,'scanner',  '2026-05-05'],
+    [gb,'BAC',    53.12,    71,'scanner',  '2026-05-05'],
+    [gb,'BTC-USD',81394.89, 68,'scanner',  '2026-05-05'],
+    [gb,'QRVO',   89.23,    75,'scanner',  '2026-05-06'],
+    [gb,'APO',    131.12,   60,'scanner',  '2026-05-06'],
+    [gb,'MSTR',   186.82,   66,'scanner',  '2026-05-06'],
+    [gb,'SOUN',   9.37,     59,'scanner',  '2026-05-06'],
+    [gb,'BAC',    53.60,    71,'scanner',  '2026-05-06'],
+    [gb,'BTC-USD',81153.13, 68,'scanner',  '2026-05-06'],
+    [gb,'APP',    498.87,   60,'scanner',  '2026-05-07'],
+    [gb,'SMCI',   33.62,    59,'scanner',  '2026-05-07'],
+    [gb,'CEG',    311.28,   67,'scanner',  '2026-05-07'],
+    [gb,'PANW',   196.53,   66,'scanner',  '2026-05-07'],
+    [gb,'SWKS',   66.78,    58,'scanner',  '2026-05-09'],
+    [gb,'U',      28.16,    63,'scanner',  '2026-05-09'],
+    [gb,'V',      323.86,   84,'scanner',  '2026-05-11'],
+    [gb,'MSCI',   584.63,   80,'scanner',  '2026-05-11'],
+    [gb,'TSLA',   445.00,   76,'scanner',  '2026-05-11'],
+    [gb,'COIN',   216.60,   97,'scanner',  '2026-05-11'],
+    [gb,'DIS',    106.16,   80,'scanner',  '2026-05-12'],
+    [gb,'ZM',     99.76,   100,'scanner',  '2026-05-14'],
+    [gb,'LAC',    5.17,    100,'watchlist', '2026-05-14'],
+    [gb,'ATLX',   4.69,     79,'watchlist', '2026-05-14'],
+    [bp,'SOUN',   9.63,     52,'scanner',  '2026-05-07'],
+    [bp,'CEG',    311.28,   61,'scanner',  '2026-05-07'],
+    [bp,'SMCI',   33.62,    59,'scanner',  '2026-05-07'],
+    [bp,'PANW',   196.53,   66,'scanner',  '2026-05-07'],
+    [bp,'MARA',   12.70,    71,'scanner',  '2026-05-07'],
+  ];
+
+  let ok = 0, fail = 0;
+  for (let i = 0; i < entries.length; i++) {
+    const [table, ticker, price, conviction, source, detectedAt] = entries[i];
+    if (btn) btn.textContent = `⏳ ${i + 1} / ${entries.length}`;
+    const success = await ins(table, ticker, price, conviction, source, detectedAt);
+    if (success) ok++; else fail++;
+    await new Promise(res => setTimeout(res, 200));
+  }
+
+  if (btn) { btn.textContent = `✅ Done (${ok} ok, ${fail} failed)`; }
+  renderAllHoF();
+  setTimeout(() => renderBullPenHoF(), 500);
 }
 
 async function wipeAllHof() {
@@ -726,6 +801,7 @@ function _injectAdminHofAddForm() {
       <button onclick="adminReScanToHof()" style="background:rgba(255,204,68,0.12);border:1px solid rgba(255,204,68,0.4);color:var(--gold);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">🔁 RESCAN ALL TICKERS → HOF</button>
       <button id="purgeZeroBtn" onclick="purgeZeroReturnEntries()" style="background:rgba(255,68,102,0.12);border:1px solid rgba(255,68,102,0.4);color:#ff4466;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">🗑 PURGE 0% ENTRIES</button>
       <button id="wipeHofBtn" onclick="wipeAllHof()" style="background:rgba(255,30,30,0.15);border:1px solid rgba(255,30,30,0.5);color:#ff2222;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">☢ WIPE ALL HOF</button>
+      <button id="restoreHofBtn" onclick="restoreHofFromScreenshots()" style="background:rgba(68,255,160,0.10);border:1px solid rgba(68,255,160,0.35);color:#44ffa0;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;white-space:nowrap;">📸 RESTORE FROM SCREENSHOTS</button>
       <span style="font-size:9px;color:var(--muted);margin-left:10px;">Detects all current golden bulls and force-adds them (bypasses 7-day dedup)</span>
     </div>
     <div id="aHofMsg" style="font-size:10px;margin-top:8px;letter-spacing:0.5px;min-height:14px;"></div>
@@ -1038,8 +1114,8 @@ async function renderAllHoF() {
     const titleEl    = document.getElementById('allHofTitle');
     const subtitleEl = document.getElementById('allHofSubtitle');
     const btn        = document.getElementById('allHofReturnBtn');
-    if (titleEl)    titleEl.textContent    = '⚡ COMBINED HOF — SCANNER + WATCHLIST (ADMIN)';
-    if (subtitleEl) subtitleEl.textContent = `${scannerCount} SCANNER · ${watchlistCount} WATCHLIST`;
+    if (titleEl)    titleEl.textContent    = '⚡ COMBINED HOF — ADMIN';
+    if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ${records.length} SIGNALS · ${watchlistCount} WATCHLIST`;
     if (btn) btn.style.display = 'block';
     if (!document.getElementById('allHofPurgeBtn') && subtitleEl) {
       subtitleEl.insertAdjacentHTML('afterend',
