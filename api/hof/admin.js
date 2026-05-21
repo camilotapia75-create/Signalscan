@@ -106,7 +106,8 @@ export default async function handler(req, res) {
 
   // ── SINGLE INSERT ─────────────────────────────────────────────────────────
   if (action === 'insert') {
-    const { ticker, price, conviction, detectedAt, source } = req.body;
+    const { ticker, price, conviction, detectedAt, source, table: insertTable } = req.body;
+    const targetTable = ALLOWED_TABLES.has(insertTable) ? insertTable : 'golden_bull_hof';
     const tickerUpper = (typeof ticker === 'string' ? ticker : '').trim().toUpperCase();
     if (!tickerUpper || !/^[A-Z0-9.\-]{1,12}$/.test(tickerUpper))
       return res.status(400).json({ error: 'Invalid ticker' });
@@ -120,7 +121,7 @@ export default async function handler(req, res) {
       source: allowedSources.includes(source) ? source : 'manual',
     };
     if (detectedAt) { const d = new Date(detectedAt); if (!isNaN(d.getTime())) record.detected_at = d.toISOString(); }
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/golden_bull_hof`, {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/${targetTable}`, {
       method: 'POST',
       headers: { apikey: svcKey, Authorization: svcAuth, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
       body: JSON.stringify([record]), signal: AbortSignal.timeout(8000),
