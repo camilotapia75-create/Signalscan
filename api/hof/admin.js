@@ -50,6 +50,24 @@ export default async function handler(req, res) {
     return res.status(200).json({ wiped, failed });
   }
 
+  // ── DELETE BY TICKER + DATE (removes one day's entry without touching others) ──
+  if (action === 'delete-by-date') {
+    const { table, ticker, date } = req.body;
+    if (!ALLOWED_TABLES.has(table)) return res.status(400).json({ error: 'Invalid table' });
+    const tickerUpper = (typeof ticker === 'string' ? ticker : '').trim().toUpperCase();
+    if (!tickerUpper || !/^[A-Z0-9.\-]{1,12}$/.test(tickerUpper)) return res.status(400).json({ error: 'Invalid ticker' });
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return res.status(400).json({ error: 'Invalid date' });
+    const dayStart = new Date(d); dayStart.setUTCHours(0,0,0,0);
+    const dayEnd   = new Date(d); dayEnd.setUTCHours(23,59,59,999);
+    const r = await fetch(
+      `${SUPABASE_URL}/rest/v1/${table}?ticker=eq.${encodeURIComponent(tickerUpper)}&detected_at=gte.${dayStart.toISOString()}&detected_at=lte.${dayEnd.toISOString()}`,
+      { method: 'DELETE', headers: { apikey: svcKey, Authorization: svcAuth, Prefer: 'return=minimal' }, signal: AbortSignal.timeout(8000) }
+    );
+    if (!r.ok) return res.status(500).json({ error: `Delete failed: ${r.status}` });
+    return res.status(200).json({ deleted: tickerUpper, date, table });
+  }
+
   // ── DELETE BY ID (precise — used by purge to avoid wiping all ticker entries) ──
   if (action === 'delete-by-id') {
     const { table, id } = req.body;

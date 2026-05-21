@@ -568,9 +568,7 @@ async function restoreHofFromScreenshots() {
     [gb,'BAC',    53.60,    71,'scanner',  '2026-05-06'],
     [gb,'BTC-USD',81153.13, 68,'scanner',  '2026-05-06'],
     [gb,'APP',    498.87,   60,'scanner',  '2026-05-07'],
-    [gb,'SMCI',   33.62,    59,'scanner',  '2026-05-07'],
-    [gb,'CEG',    311.28,   67,'scanner',  '2026-05-07'],
-    [gb,'PANW',   196.53,   66,'scanner',  '2026-05-07'],
+    // SMCI/CEG/PANW May 7 intentionally omitted — those live in bull_pen_hof only
     [gb,'SWKS',   66.78,    58,'scanner',  '2026-05-09'],
     [gb,'U',      28.16,    63,'scanner',  '2026-05-09'],
     [gb,'V',      323.86,   84,'scanner',  '2026-05-11'],
@@ -595,6 +593,23 @@ async function restoreHofFromScreenshots() {
     const success = await ins(table, ticker, price, conviction, source, detectedAt);
     if (success) ok++; else fail++;
     await new Promise(res => setTimeout(res, 200));
+  }
+
+  // Clean up bull-pen-only entries that may have been inserted into golden_bull_hof
+  const bpOnlyInGb = [
+    { ticker: 'SMCI', date: '2026-05-07' },
+    { ticker: 'CEG',  date: '2026-05-07' },
+    { ticker: 'PANW', date: '2026-05-07' },
+  ];
+  for (const { ticker, date } of bpOnlyInGb) {
+    try {
+      await fetch('/api/hof/admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'delete-by-date', table: 'golden_bull_hof', ticker, date }),
+      });
+    } catch (_) {}
+    await new Promise(res => setTimeout(res, 150));
   }
 
   if (btn) { btn.textContent = `✅ Done (${ok} ok, ${fail} failed)`; }
