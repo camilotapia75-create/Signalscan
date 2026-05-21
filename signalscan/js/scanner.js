@@ -112,42 +112,30 @@ async function quickAnalyzeForScan(ticker, spyReturn20d = null) {
     const indData = computeIndicators(data);
     if (!indData) return null;
 
-    const { rsi, ema20, ema50, lastClose, atr } = indData;
+    const { ema20, lastClose, atr } = indData;
 
-    if (lastClose < 10) return null;
-
-    // ── Hard trend gates ──────────────────────────────────────────────────────
-    // Critical: reversal signal must fire within an uptrend, not on a collapsing stock.
-    // A downtrending stock is always "oversold" before its next leg down — these gates
-    // ensure the dip is happening inside a healthy larger uptrend.
-    if (ema20 < ema50)             return null; // EMA stack must be bullish
-    if (lastClose < ema50 * 0.90)  return null; // >10% below 50MA = distribution, not a dip
-    if (rsi < 30 || rsi > 82)      return null; // RSI<30 = possible breakdown, not just oversold
-
-    // Long-term trend: price above 200-day MA
-    if (closes.length >= 200) {
-      const e200 = calcEMA(closes, 200);
-      if (lastClose < e200[e200.length - 1]) return null;
-    }
+    if (lastClose < 5) return null;
 
     const highs    = data.highs.filter(Boolean);
     const lows     = data.lows.filter(Boolean);
     const yearHigh = Math.max(...highs);
+    const yearLow  = Math.min(...lows);
+    const rangeSpan = yearHigh - yearLow;
 
-    // Within 25% of 52-week high — no persistent laggards
-    if ((yearHigh - lastClose) / yearHigh > 0.25) return null;
+    // Only hard filter: near yearly low with collapsing 50MA = falling knife
+    const nearYearlyLow   = rangeSpan > 0 && (lastClose - yearLow) / rangeSpan < 0.20;
+    const e50             = calcEMA(closes, 50);
+    const ema50Collapsing = e50.length >= 9 && (e50[e50.length-1] - e50[e50.length-9]) / e50[e50.length-9] < -0.08;
+    if (nearYearlyLow && ema50Collapsing) return null;
 
-    const sr   = findSupportResistance(highs, lows, closes);
-    const pa   = analyzePriceAction(data);
-    // Reversal = local dip / oversold condition
-    // Continuation = larger uptrend still intact
-    // Together: "oversold dip within a confirmed uptrend" = buy the dip
+    const sr  = findSupportResistance(highs, lows, closes);
+    const pa  = analyzePriceAction(data);
     const rev  = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
 
-    if (rev.score <= 0.38 || cont.score <= 0.48) return null;
+    if (rev.score <= 0.40 || cont.score <= 0.45) return null;
 
-    const conviction = Math.round(Math.min(100, Math.max(60, 60 + (rev.score + cont.score - 0.86) / 0.74 * 40)));
+    const conviction = Math.round(Math.min(100, Math.max(60, 60 + (rev.score + cont.score - 0.85) / 0.65 * 40)));
     const topSignal  = rev.keySignals[0]?.text || cont.keySignals[0]?.text || '';
     const spark      = closes.slice(-30);
     const stopPrice  = Math.max(ema20 * 0.985, lastClose - atr * 1.5);
@@ -1211,11 +1199,6 @@ async function quickAnalyzeForScanV2(ticker, spyReturn) {
     const { rsi, ema20, ema50, lastClose, volRatio, atr } = indData;
 
     if (lastClose < 5) return null;
-
-    // Hard trend gates — same logic as Golden Bull: dip must be inside an uptrend
-    if (ema20 < ema50)             return null; // EMA stack must be bullish
-    if (lastClose < ema50 * 0.90)  return null; // >10% below 50MA = distribution, not a dip
-    if (rsi < 28 || rsi > 85)      return null; // allow deeper dips than Golden Bull (more experimental)
 
     const highs   = data.highs.filter(Boolean);
     const lows    = data.lows.filter(Boolean);
