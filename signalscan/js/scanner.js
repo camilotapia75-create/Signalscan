@@ -112,7 +112,7 @@ async function quickAnalyzeForScan(ticker, spyReturn20d = null) {
     const indData = computeIndicators(data);
     if (!indData) return null;
 
-    const { ema20, lastClose, atr } = indData;
+    const { rsi, ema20, lastClose, atr } = indData;
 
     if (lastClose < 5) return null;
 
