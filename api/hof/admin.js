@@ -116,10 +116,10 @@ export default async function handler(req, res) {
     if (typeof conviction !== 'number' || conviction < 0 || conviction > 100)
       return res.status(400).json({ error: 'Invalid conviction' });
     const allowedSources = ['scanner', 'watchlist', 'manual'];
-    const record = {
-      ticker: tickerUpper, signal_price: price, conviction: Math.round(conviction),
-      source: allowedSources.includes(source) ? source : 'manual',
-    };
+    const record = { ticker: tickerUpper, signal_price: price, conviction: Math.round(conviction) };
+    if (targetTable === 'golden_bull_hof') {
+      record.source = allowedSources.includes(source) ? source : 'manual';
+    }
     if (detectedAt) { const d = new Date(detectedAt); if (!isNaN(d.getTime())) record.detected_at = d.toISOString(); }
     const r = await fetch(`${SUPABASE_URL}/rest/v1/${targetTable}`, {
       method: 'POST',
