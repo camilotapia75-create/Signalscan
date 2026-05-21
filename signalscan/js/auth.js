@@ -198,14 +198,19 @@ async function handleLogin(e) {
 
   btn.disabled = true; btn.textContent = 'Signing in...';
   try {
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Connection timed out — please try again.')), 12000)
-    );
-    const { error } = await Promise.race([
-      getSupabase().auth.signInWithPassword({ email, password }),
-      timeoutPromise,
-    ]);
-    if (error) throw error;
+    const r = await fetch('/api/auth/signin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Login failed');
+    const { error: sessErr } = await getSupabase().auth.setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+    });
+    if (sessErr) throw sessErr;
     hideAuthModal();
   } catch (err) {
     errEl.textContent = err.message;
