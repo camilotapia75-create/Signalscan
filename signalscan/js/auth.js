@@ -38,12 +38,13 @@ function headerLoginClick() {
 async function initAuth() {
   const sb = getSupabase();
 
-  // Wrap getSession in try-catch so a network failure doesn't silently prevent
-  // renderAuthState() from running — which would leave the LOGIN button with no onclick.
+  // Timeout ensures a hung network request doesn't prevent onAuthStateChange from
+  // being registered — which would leave the whole auth system dead on page load.
   try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (session?.user) {
-      currentUser = session.user;
+    const timeoutP = new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 8000));
+    const result = await Promise.race([sb.auth.getSession(), timeoutP]);
+    if (result?.data?.session?.user) {
+      currentUser = result.data.session.user;
       await loadSub();
     }
   } catch (e) {
