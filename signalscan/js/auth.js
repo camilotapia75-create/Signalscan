@@ -21,12 +21,18 @@ function isSubscribed() {
 
 async function loadSub() {
   if (!currentUser) { currentSub = null; return; }
-  const { data } = await getSupabase()
-    .from('subscriptions')
-    .select('status,period_end')
-    .eq('user_id', currentUser.id)
-    .maybeSingle();
-  currentSub = data;
+  try {
+    const query = getSupabase()
+      .from('subscriptions')
+      .select('status,period_end')
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    const timeout = new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 5000));
+    const { data } = await Promise.race([query, timeout]);
+    currentSub = data;
+  } catch (_) {
+    currentSub = null;
+  }
 }
 
 // Called by the header LOGIN button as a static fallback in case renderAuthState hasn't run yet
