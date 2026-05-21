@@ -328,9 +328,6 @@ const ADMIN_EMAIL = 'camilotapia75@gmail.com';
 let _hofAdminRecords  = [];
 let _hofRenderGen     = 0;
 let _hofReturnLoading = false;
-let _allHofAdminRecords = [];
-let _allRenderGen       = 0;
-let _allReturnLoading   = false;
 let _minerviniAdminRecords = [];
 let _minerviniRenderGen    = 0;
 let _minerviniReturnLoading = false;
@@ -416,15 +413,26 @@ async function renderHoF() {
   const gen = ++_hofRenderGen; // stale-render guard
 
   try {
-    const sb = getSupabase();
-    const { data: records, error } = await sb
-      .from('golden_bull_hof')
-      .select('ticker,detected_at,signal_price,conviction,source')
-      .order('detected_at', { ascending: false })
-      .limit(5000);
+    let records;
+
+    if (isAdmin) {
+      // Admin: use Supabase JS client (has auth session)
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('golden_bull_hof')
+        .select('ticker,detected_at,signal_price,conviction,source')
+        .order('detected_at', { ascending: false })
+        .limit(5000);
+      if (error) throw error;
+      records = data;
+    } else {
+      // Public: fetch via Vercel proxy to bypass ad blockers and RLS
+      const r = await fetch('/api/hof/public', { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      records = await r.json();
+    }
 
     if (gen !== _hofRenderGen) return; // a newer renderHoF() started — abort
-    if (error) throw error;
 
     const subtitleEl = document.getElementById('hofSubtitle');
     const titleEl    = document.getElementById('hofTitle');
@@ -451,8 +459,6 @@ async function renderHoF() {
     if (isAdmin) {
       _hofAdminRecords = records;
       const watchlistCount = records.filter(r => r.source === 'watchlist').length;
-      const scannerTagged  = records.filter(r => r.source === 'scanner').length;
-      const legacyCount    = records.filter(r => !r.source).length;
       const uniqueCount    = new Set(records.map(r => r.ticker)).size;
       if (titleEl)    titleEl.textContent    = '🏆 GOLDEN BULL HOF — ADMIN';
       if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ${uniqueCount} TICKERS · ${watchlistCount} WATCHLIST`;
@@ -617,7 +623,6 @@ async function restoreHofFromScreenshots() {
   }
 
   if (btn) { btn.textContent = `✅ Done (${ok} ok, ${fail} failed)`; }
-  renderAllHoF();
   setTimeout(() => renderBullPenHoF(), 500);
 }
 
@@ -652,8 +657,7 @@ async function wipeAllHof() {
     alert(msg);
     renderHoF();
     renderBullPenHoF();
-    renderAllHoF();
-    if (typeof renderStrictHoF    === 'function') renderStrictHoF();
+      if (typeof renderStrictHoF    === 'function') renderStrictHoF();
     if (typeof renderMinerviniHoF === 'function') renderMinerviniHoF();
   } catch (e) {
     alert(`Wipe error: ${e.message}`);
@@ -688,7 +692,6 @@ async function restoreHofTickers(tickers, table = 'golden_bull_hof') {
   if (!res.ok) { alert(`Restore failed: ${d.error}`); return; }
   alert(`Restored ${d.inserted} ticker(s): ${results.map(r => `${r.ticker} @ $${r.price.toFixed(2)}`).join(', ')}`);
   renderHoF();
-  renderAllHoF();
 }
 
 async function purgeZeroReturnEntries() {
@@ -1101,92 +1104,6 @@ async function loadHofReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-// ── Combined HoF (Golden Bull Scanner + Watchlist) ────────────────────────────
-
-async function renderAllHoF() {
-  const section = document.getElementById('allHofSection');
-  if (!section) return;
-
-  const isAdmin = typeof currentUser !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
-  const gen = ++_allRenderGen;
-
-  try {
-    const sb = getSupabase();
-    const { data: records, error } = await sb
-      .from('golden_bull_hof')
-      .select('ticker,detected_at,signal_price,conviction,source')
-      .order('detected_at', { ascending: false })
-      .limit(5000);
-
-    if (gen !== _allRenderGen) return;
-    if (error) throw error;
-
-    if (!records?.length) { section.style.display = 'none'; return; }
-
-    const watchlistCount = records.filter(r => r.source === 'watchlist').length;
-    const scannerCount   = records.length - watchlistCount;
-
-    // Combined HOF is admin-only (public HOF already includes all sources)
-    if (!isAdmin) { section.style.display = 'none'; return; }
-
-    section.style.display = 'block';
-    _allHofAdminRecords = records;
-    const titleEl    = document.getElementById('allHofTitle');
-    const subtitleEl = document.getElementById('allHofSubtitle');
-    const btn        = document.getElementById('allHofReturnBtn');
-    if (titleEl)    titleEl.textContent    = '⚡ COMBINED HOF — ADMIN';
-    if (subtitleEl) subtitleEl.textContent = `ADMIN VIEW — ${records.length} SIGNALS · ${watchlistCount} WATCHLIST`;
-    if (btn) btn.style.display = 'block';
-    if (!document.getElementById('allHofPurgeBtn') && subtitleEl) {
-      subtitleEl.insertAdjacentHTML('afterend',
-        `<button id="allHofPurgeBtn" onclick="purgeZeroReturnEntries()" style="margin-bottom:14px;background:rgba(255,68,102,0.12);border:1px solid rgba(255,68,102,0.4);color:#ff4466;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:7px 14px;cursor:pointer;">🗑 PURGE 0% ENTRIES</button>`);
-    }
-    _renderHofAdminTable(records, 'allHofTbody');
-    _allReturnLoading = false;
-    loadAllHofReturns();
-  } catch (e) {
-    console.error('[ALL HOF] render error:', e.message);
-    section.style.display = 'none';
-  }
-}
-
-async function loadAllHofReturns() {
-  if (_allReturnLoading) return;
-  _allReturnLoading = true;
-  const btn = document.getElementById('allHofReturnBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
-
-  const byTicker = new Map();
-  for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
-  const results = await Promise.all([...byTicker.values()].map(async s => {
-    try {
-      const data = await fetchStockData(s.ticker, '1d|5d');
-      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-      if (!cur) return null;
-      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
-    } catch (_) { return null; }
-  }));
-  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
-  const tbody = document.getElementById('allHofTbody');
-  if (tbody && sorted.length) {
-    tbody.innerHTML = sorted.map(s => {
-      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-      return `<tr>
-        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
-        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-        <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
-        <td style="padding:4px 8px;"><button onclick="hofAdminDelete('golden_bull_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
-      </tr>`;
-    }).join('');
-  }
-
-  _allReturnLoading = false;
-  if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
-}
 
 // ── Theme toggle ──────────────────────────────────────────────────────────────
 
@@ -2233,7 +2150,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   _syncHofPending();
   renderHoF();
   renderBullPenHoF();
-  renderAllHoF();
   // Pre-load NVDA so new visitors see the analysis tool in action
   const input = document.getElementById('tickerInput');
   if (input && !input.value.trim()) {

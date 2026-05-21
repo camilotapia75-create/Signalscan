@@ -386,26 +386,6 @@
     <button id="minerviniHofReturnBtn" onclick="loadMinerviniReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(34,211,160,0.3);color:rgba(34,211,160,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#22d3a0';this.style.color='#22d3a0'" onmouseout="this.style.borderColor='rgba(34,211,160,0.3)';this.style.color='rgba(34,211,160,0.6)'">LOAD RETURNS</button>
   </div>
 
-  <!-- ── Combined HoF (Scanner + Watchlist) ─────────────────────────────────── -->
-  <div id="allHofSection" style="display:none;padding:32px;border-top:1px solid rgba(77,159,255,0.3);">
-    <div id="allHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#4d9fff;">⚡ COMBINED HOF — SCANNER + WATCHLIST</div>
-    <div id="allHofSubtitle" style="font-size:10px;color:rgba(77,159,255,0.7);letter-spacing:1px;margin-bottom:20px;">ALL-TIME · 0 TICKERS</div>
-    <div style="overflow-x:auto;">
-      <table style="width:100%;font-size:11px;border-collapse:collapse;">
-        <thead>
-          <tr style="border-bottom:1px solid rgba(77,159,255,0.25);">
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
-            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
-            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">RETURN</th>
-          </tr>
-        </thead>
-        <tbody id="allHofTbody"></tbody>
-      </table>
-    </div>
-    <button id="allHofReturnBtn" onclick="loadAllHofReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(77,159,255,0.3);color:rgba(77,159,255,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#4d9fff';this.style.color='#4d9fff'" onmouseout="this.style.borderColor='rgba(77,159,255,0.3)';this.style.color='rgba(77,159,255,0.6)'">LOAD RETURNS</button>
-  </div>
 </main>
 
 <!-- ── Auth Modal ────────────────────────────────────────────────────────────── -->
@@ -444,9 +424,9 @@
 <script src="js/config.js?v=32"></script>
 <script src="js/calc.js?v=46"></script>
 <script src="js/analysis.js?v=46"></script>
-<script src="js/scanner.js?v=74"></script>
+<script src="js/scanner.js?v=75"></script>
 <script src="js/app.js?v=46"></script>
-<script src="js/auth.js?v=57"></script>
+<script src="js/auth.js?v=58"></script>
 <script src="js/watchlist.js?v=46"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
