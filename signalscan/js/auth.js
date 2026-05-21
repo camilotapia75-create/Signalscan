@@ -110,7 +110,7 @@ function renderAuthState() {
 
   renderProGate();
   updateAds();
-  if (isSubscribed()) loadWatchlist();
+  if (isSubscribed() || currentUser?.email === 'camilotapia75@gmail.com') loadWatchlist();
   if (currentUser?.email === 'camilotapia75@gmail.com' && typeof renderHoF === 'function') {
     renderHoF();
     if (typeof renderBullPenHoF   === 'function') renderBullPenHoF();
@@ -147,7 +147,7 @@ function renderProGate() {
   const proContent = document.getElementById('proContent');
   if (!gate || !proContent) return;
 
-  if (isSubscribed()) {
+  if (isSubscribed() || currentUser?.email === 'camilotapia75@gmail.com') {
     gate.style.display       = 'none';
     proContent.style.display = 'block';
   } else {
