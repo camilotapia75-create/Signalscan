@@ -504,7 +504,7 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
         <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}${_adminSrcBadge(s.source)}</td>
         <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
         <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+        <td class="hof-col-conv" style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
         <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
       </tr>`;
     }).join('');
@@ -1019,7 +1019,7 @@ function _renderHofLegacy() {
           <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
           <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
           <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-          <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+          <td class="hof-col-conv" style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
           <td id="hret-${s.ticker}-${s.ts}" style="padding:7px 8px;color:var(--muted);">—</td>
         </tr>`;
       }).join('');
@@ -1060,7 +1060,7 @@ async function loadHofReturns() {
           <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker} ${_adminSrcBadge(s.source)}</td>
           <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
           <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-          <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+          <td class="hof-col-conv" style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
           <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
           <td style="padding:4px 8px;"><button onclick="hofAdminDelete('golden_bull_hof','${s.ticker}')" style="background:none;border:none;color:#ff4466;font-size:14px;cursor:pointer;padding:2px 6px;opacity:0.6;line-height:1;" title="Remove ${s.ticker}" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">×</button></td>
         </tr>`;
@@ -1092,7 +1092,7 @@ async function loadHofReturns() {
             <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:var(--accent);padding:7px 8px;">${s.ticker}</td>
             <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
             <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-            <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
+            <td class="hof-col-conv" style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
             <td style="padding:7px 8px;font-weight:600;color:${color};">${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%</td>
           </tr>`;
         }).join('');
