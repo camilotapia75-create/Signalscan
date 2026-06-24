@@ -327,8 +327,7 @@ async function _renderHofPublicTable(records, gen, tbodyId = 'hofTbody', retBtnI
     }
 
     const top30 = [...bestByTicker.values()]
-      .sort((a, b) => b.pct - a.pct)
-      .slice(0, 30);
+      .sort((a, b) => b.pct - a.pct);
 
     renderRows(top30);
   } catch (e) {
@@ -754,7 +753,7 @@ async function _renderBullPenPublicTable(records, gen) {
       if (!existing || r.pct > existing.pct) bestByTicker.set(r.ticker, r);
     }
 
-    renderRows([...bestByTicker.values()].sort((a, b) => b.pct - a.pct).slice(0, 30));
+    renderRows([...bestByTicker.values()].sort((a, b) => b.pct - a.pct));
   } catch (e) {
     console.error('[BP HOF] price fetch failed:', e.message);
   }
