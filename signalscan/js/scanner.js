@@ -210,15 +210,25 @@ async function renderHoF() {
   const gen = ++_hofRenderGen; // stale-render guard
 
   try {
-    const sb = getSupabase();
-    const { data: records, error } = await sb
-      .from('golden_bull_hof')
-      .select('ticker,detected_at,signal_price,conviction,source')
-      .order('detected_at', { ascending: false })
-      .limit(5000);
+    let records;
+
+    if (isAdmin) {
+      const sb = getSupabase();
+      const { data, error } = await sb
+        .from('golden_bull_hof')
+        .select('ticker,detected_at,signal_price,conviction,source')
+        .order('detected_at', { ascending: false })
+        .limit(5000);
+      if (error) throw error;
+      records = data;
+    } else {
+      // Use Vercel proxy so ad blockers can't intercept the Supabase call
+      const r = await fetch('/api/hof/public', { signal: AbortSignal.timeout(10000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      records = await r.json();
+    }
 
     if (gen !== _hofRenderGen) return; // a newer renderHoF() started — abort
-    if (error) throw error;
 
     const subtitleEl = document.getElementById('hofSubtitle');
     const titleEl    = document.getElementById('hofTitle');
