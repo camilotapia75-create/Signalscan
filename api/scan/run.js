@@ -1,13 +1,12 @@
-// Autonomous daily scanner — triggered by Vercel cron or manual POST
-// GET /api/scan/run  (Vercel cron sends GET with Authorization: Bearer <CRON_SECRET>)
-// POST /api/scan/run (manual trigger — same auth)
+// Autonomous daily scanner — triggered by Vercel cron or manual GET/POST
+// GET /api/scan/run  (Vercel cron sends Authorization: Bearer <CRON_SECRET>)
 //
 // Required env vars:
-//   SUPABASE_SERVICE_ROLE_KEY  — write access to golden_bull_hof / bull_pen_hof
-//   CRON_SECRET                — any random string; set in Vercel dashboard
+//   SUPABASE_SERVICE_ROLE_KEY  — write to golden_bull_hof, bull_pen_hof, scan_run_log
+//   CRON_SECRET                — set in Vercel dashboard (any random string)
 //
-// Optional:
-//   SUPABASE_URL               — defaults to hardcoded project URL
+// Adaptive scoring: loads learned signal weights from signal_weights table.
+// Weights start at defaults and drift toward what actually predicts gains.
 
 const SUPABASE_URL     = process.env.SUPABASE_URL     || 'https://bhykfnuljzzimzmdjcia.supabase.co';
 const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -15,31 +14,47 @@ const CRON_SECRET      = process.env.CRON_SECRET;
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// Module-level crumb cache — persists across warm Vercel instances
 let _crumb = '', _cookie = '', _crumbAt = 0;
 const CRUMB_TTL  = 4 * 60 * 1000;
 const DATA_CACHE = new Map();
-const DATA_TTL   = 15 * 60 * 1000; // 15-min cache (scan runs once/day)
+const DATA_TTL   = 15 * 60 * 1000;
+
+// ── Signal definitions — key maps to default base points and text pattern ────
+
+const SIGNAL_DEFS = {
+  ema_full_stack:    { base:  3.0 },
+  ema_partial:       { base:  1.0 },
+  ema200_above:      { base:  2.0 },
+  rsi_momentum:      { base:  3.0 },
+  rsi_dip:           { base:  1.0 },
+  macd_positive:     { base:  2.0 },
+  extension_healthy: { base:  2.0 },
+  extension_over:    { base: -2.0 },
+  obv_rising:        { base:  2.0 },
+  volume_expanding:  { base:  1.0 },
+  spy_outperform:    { base:  2.0 },
+  spy_underperform:  { base: -1.0 },
+  bb_constructive:   { base:  1.0 },
+  bb_extended:       { base: -1.0 },
+};
+
+// ── Yahoo Finance data fetching ───────────────────────────────────────────────
 
 async function refreshCrumb() {
   try {
     const homeRes = await fetch('https://finance.yahoo.com/', {
       headers: { 'User-Agent': UA, Accept: 'text/html,application/xhtml+xml' },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(8000),
+      redirect: 'follow', signal: AbortSignal.timeout(8000),
     });
     const rawCookies = homeRes.headers.getSetCookie
       ? homeRes.headers.getSetCookie()
       : (homeRes.headers.get('set-cookie') || '').split(/,(?=[^ ])/);
     _cookie = rawCookies.map(c => c.split(';')[0]).filter(Boolean).join('; ');
-    const crumbRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
-      headers: { 'User-Agent': UA, Cookie: _cookie },
-      signal: AbortSignal.timeout(5000),
+    const cr = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+      headers: { 'User-Agent': UA, Cookie: _cookie }, signal: AbortSignal.timeout(5000),
     });
-    const text = await crumbRes.text();
-    if (text && text.length < 20 && !text.includes('<')) {
-      _crumb = text.trim(); _crumbAt = Date.now();
-    }
+    const t = await cr.text();
+    if (t && t.length < 20 && !t.includes('<')) { _crumb = t.trim(); _crumbAt = Date.now(); }
   } catch (_) {}
 }
 
@@ -75,6 +90,31 @@ async function fetchYF(ticker) {
   return null;
 }
 
+// ── Load learned weights from Supabase ────────────────────────────────────────
+
+async function loadSignalWeights() {
+  if (!SUPABASE_SERVICE) return {};
+  try {
+    const res = await fetch(
+      `${SUPABASE_URL}/rest/v1/signal_weights?select=signal_key,base_points`,
+      { headers: { apikey: SUPABASE_SERVICE, Authorization: `Bearer ${SUPABASE_SERVICE}` },
+        signal: AbortSignal.timeout(5000) }
+    );
+    if (!res.ok) return {};
+    const rows = await res.json();
+    const w = {};
+    for (const r of (Array.isArray(rows) ? rows : [])) {
+      w[r.signal_key] = parseFloat(r.base_points);
+    }
+    console.log(`[scan/run] Loaded ${Object.keys(w).length} learned signal weights`);
+    return w;
+  } catch (_) { return {}; }
+}
+
+function pts(key, weights) {
+  return weights[key] !== undefined ? weights[key] : (SIGNAL_DEFS[key]?.base ?? 0);
+}
+
 // ── Technical indicators ─────────────────────────────────────────────────────
 
 function calcEMA(closes, period) {
@@ -103,10 +143,9 @@ function calcRSI(closes, period = 14) {
 }
 
 function calcMACD(closes) {
-  const ema12 = calcEMA(closes, 12);
-  const ema26 = calcEMA(closes, 26);
-  if (ema12 == null || ema26 == null) return null;
-  return ema12 - ema26;
+  const e12 = calcEMA(closes, 12), e26 = calcEMA(closes, 26);
+  if (e12 == null || e26 == null) return null;
+  return e12 - e26;
 }
 
 function calcBB(closes, period = 20) {
@@ -128,9 +167,9 @@ function calcOBV(closes, volumes) {
   return arr;
 }
 
-// ── Core analysis — runs both algorithms on a single fetch ───────────────────
+// ── Core scoring — uses learned weights, records which signals fired ──────────
 
-function _scoreTicker(closes, volumes, spyCloses, rsiGate) {
+function _scoreTicker(closes, volumes, spyCloses, rsiGate, weights) {
   const price  = closes[closes.length - 1];
   if (!price || price < 2) return null;
 
@@ -145,7 +184,6 @@ function _scoreTicker(closes, volumes, spyCloses, rsiGate) {
 
   if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return null;
 
-  // Hard gates
   if (price < ema50) return null;
   if (rsi > rsiGate) return null;
   if (closes.length >= 70) {
@@ -154,39 +192,47 @@ function _scoreTicker(closes, volumes, spyCloses, rsiGate) {
   }
 
   let score = 0;
-  const signals = [];
+  const signalTexts = [];
+  const signalKeys  = [];
+
+  function add(key, text) {
+    const p = pts(key, weights);
+    score += p;
+    signalTexts.push(text);
+    signalKeys.push(key);
+  }
 
   if (ema9 > ema21 && ema21 > ema50) {
-    score += 3; signals.push('Full EMA stack aligned (9 > 21 > 50) — confirmed uptrend');
+    add('ema_full_stack', 'Full EMA stack aligned (9 > 21 > 50) — confirmed uptrend');
   } else if (ema9 > ema21) {
-    score += 1; signals.push('EMA9 > EMA21 — short-term bullish momentum');
+    add('ema_partial', 'EMA9 > EMA21 — short-term bullish momentum');
   }
 
   if (ema200 && price > ema200) {
-    score += 2; signals.push(`Above EMA200 ($${ema200.toFixed(2)}) — long-term bull market structure`);
+    add('ema200_above', `Above EMA200 ($${ema200.toFixed(2)}) — long-term bull market structure`);
   }
 
   if (rsi >= 48 && rsi <= 65) {
-    score += 3; signals.push(`RSI ${rsi.toFixed(0)} — momentum zone, upside room intact`);
+    add('rsi_momentum', `RSI ${rsi.toFixed(0)} — momentum zone, upside room intact`);
   } else if (rsi >= 38 && rsi < 48) {
-    score += 1; signals.push(`RSI ${rsi.toFixed(0)} — pulling back into support zone`);
+    add('rsi_dip', `RSI ${rsi.toFixed(0)} — pulling back into support zone`);
   }
 
   if (macd && macd > 0) {
-    score += 2; signals.push('MACD positive — bull momentum building');
+    add('macd_positive', 'MACD positive — bull momentum building');
   }
 
   const extPct = (price - ema50) / ema50 * 100;
   if (extPct <= 15) {
-    score += 2; signals.push(`${extPct.toFixed(1)}% above EMA50 — healthy, room to extend`);
+    add('extension_healthy', `${extPct.toFixed(1)}% above EMA50 — healthy, room to extend`);
   } else if (extPct > 25) {
-    score -= 2; signals.push(`${extPct.toFixed(1)}% above EMA50 — overextended, high reversal risk`);
+    add('extension_over', `${extPct.toFixed(1)}% above EMA50 — overextended, high reversal risk`);
   }
 
   if (obv.length >= 10) {
     const o = obv.slice(-10);
     if (o[o.length - 1] > o[0]) {
-      score += 2; signals.push('OBV rising 10-day — sustained institutional accumulation');
+      add('obv_rising', 'OBV rising 10-day — sustained institutional accumulation');
     }
   }
 
@@ -194,50 +240,64 @@ function _scoreTicker(closes, volumes, spyCloses, rsiGate) {
     const recentVol = volumes.slice(-5).reduce((a, b) => a + (b || 0), 0) / 5;
     const avgVol    = volumes.slice(-25, -5).reduce((a, b) => a + (b || 0), 0) / 20;
     if (avgVol > 0 && recentVol > avgVol * 1.15) {
-      score += 1; signals.push('Volume expanding above 20-day average — participation growing');
+      add('volume_expanding', 'Volume expanding above 20-day average — participation growing');
     }
   }
 
   if (spyCloses?.length >= 20) {
-    const sc      = spyCloses.filter(Boolean);
-    const spyRet  = (sc[sc.length - 1] - sc[sc.length - 20]) / sc[sc.length - 20] * 100;
-    const tkrRet  = closes.length >= 20
+    const sc     = spyCloses.filter(Boolean);
+    const spyRet = (sc[sc.length - 1] - sc[sc.length - 20]) / sc[sc.length - 20] * 100;
+    const tkrRet = closes.length >= 20
       ? (closes[closes.length - 1] - closes[closes.length - 20]) / closes[closes.length - 20] * 100
       : null;
     if (tkrRet !== null && tkrRet > spyRet + 3) {
-      score += 2; signals.push(`Outperforming SPY by ${(tkrRet - spyRet).toFixed(1)}% over 20 days`);
+      add('spy_outperform', `Outperforming SPY by ${(tkrRet - spyRet).toFixed(1)}% over 20 days`);
     } else if (tkrRet !== null && tkrRet < spyRet - 5) {
-      score -= 1; signals.push('Underperforming SPY — relative weakness');
+      add('spy_underperform', 'Underperforming SPY — relative weakness');
     }
   }
 
   if (price > bb.mean && price < bb.upper) {
-    score += 1; signals.push('Between BB mean and upper band — constructive trend position');
+    add('bb_constructive', 'Between BB mean and upper band — constructive trend position');
   } else if (price > bb.upper) {
-    score -= 1; signals.push('Above BB upper band — short-term overextended');
+    add('bb_extended', 'Above BB upper band — short-term overextended');
   }
 
-  return { price, score, signals, rsi, ema50 };
+  return { price, score, signalTexts, signalKeys };
 }
 
-async function analyzeTickerBoth(ticker, spyCloses) {
+async function analyzeTickerBoth(ticker, spyCloses, weights) {
   const data = await fetchYF(ticker);
   if (!data) return { golden: null, bullpen: null };
   const { closes, volumes } = data;
   if (closes.length < 50) return { golden: null, bullpen: null };
 
-  const gbResult = _scoreTicker(closes, volumes, spyCloses, 76);  // Golden Bull: RSI ≤ 76
-  const bpResult = _scoreTicker(closes, volumes, spyCloses, 78);  // Bull Pen:   RSI ≤ 78
+  // Compute weighted max score so threshold scales with weights
+  const weightedMax = Object.entries(SIGNAL_DEFS)
+    .filter(([, d]) => d.base > 0)
+    .reduce((sum, [key, d]) => sum + Math.max(0, pts(key, weights)), 0);
+  const threshold = weightedMax * 0.56; // 56% of max = Golden Bull
 
-  const toEntry = (r, threshold) => {
+  const gbRes = _scoreTicker(closes, volumes, spyCloses, 76, weights);
+  const bpRes = _scoreTicker(closes, volumes, spyCloses, 78, weights);
+
+  const toEntry = (r, minScore) => {
     if (!r) return null;
-    const conviction = Math.min(100, Math.max(0, Math.round(r.score / 18 * 100)));
-    return { ticker, price: r.price, signals: r.signals, conviction, topSignal: r.signals[0] || null, qualifies: r.score >= threshold };
+    const conviction = Math.min(100, Math.max(0, Math.round(r.score / weightedMax * 100)));
+    return {
+      ticker,
+      price:      r.price,
+      signals:    r.signalTexts,
+      signalKeys: r.signalKeys,
+      conviction,
+      topSignal:  r.signalTexts[0] || null,
+      qualifies:  r.score >= minScore,
+    };
   };
 
   return {
-    golden:  toEntry(gbResult, 10), // Golden Bull: score ≥ 10
-    bullpen: toEntry(bpResult,  7), // Bull Pen:    score ≥ 7 (broader catch)
+    golden:  toEntry(gbRes, threshold),
+    bullpen: toEntry(bpRes, threshold * 0.7),
   };
 }
 
@@ -246,7 +306,6 @@ async function analyzeTickerBoth(ticker, spyCloses) {
 async function recordBulls(bulls, table) {
   if (!SUPABASE_SERVICE || !bulls.length) return 0;
 
-  // Fetch tickers already recorded in the last 7 days (dedup)
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   try {
     const checkRes = await fetch(
@@ -254,16 +313,17 @@ async function recordBulls(bulls, table) {
       { headers: { apikey: SUPABASE_SERVICE, Authorization: `Bearer ${SUPABASE_SERVICE}` } }
     );
     const recent = checkRes.ok ? await checkRes.json() : [];
-    const seen   = new Set(recent.map(r => r.ticker));
+    const seen   = new Set((Array.isArray(recent) ? recent : []).map(r => r.ticker));
     const fresh  = bulls.filter(b => !seen.has(b.ticker));
     if (!fresh.length) return 0;
 
     const rows = fresh.map(b => ({
-      ticker:      b.ticker,
+      ticker:       b.ticker,
       signal_price: b.price,
-      conviction:  b.conviction,
-      detected_at: new Date().toISOString(),
-      source:      'scanner',
+      conviction:   b.conviction,
+      detected_at:  new Date().toISOString(),
+      source:       'scanner',
+      signal_keys:  b.signalKeys || [],
     }));
 
     await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
@@ -276,12 +336,11 @@ async function recordBulls(bulls, table) {
     });
     return fresh.length;
   } catch (e) {
-    console.error(`[scan/run] recordBulls(${table}) error:`, e.message);
+    console.error(`[scan/run] recordBulls(${table}):`, e.message);
     return 0;
   }
 }
 
-// Log the scan run to scan_run_log (create table first time via raw SQL if needed)
 async function logScanRun(summary) {
   if (!SUPABASE_SERVICE) return;
   try {
@@ -305,7 +364,7 @@ async function logScanRun(summary) {
   } catch (_) {}
 }
 
-// ── Ticker universe ─────────────────────────────────────────────────────────
+// ── Ticker universe ──────────────────────────────────────────────────────────
 
 const SCAN_UNIVERSE_CORE = [
   'AAPL','MSFT','NVDA','GOOGL','AMZN','META','TSLA','AVGO','ORCL','CRM',
@@ -342,27 +401,27 @@ const ROTATION_POOL = [
   'MCO','ROP','IDXX','ALGN','DXCM','OXY','FANG','MPC','CTRA',
 ];
 
+// ── Handler ──────────────────────────────────────────────────────────────────
+
 export default async function handler(req, res) {
-  // Auth: Vercel cron sends Authorization: Bearer <CRON_SECRET>
   if (CRON_SECRET) {
     const auth = req.headers['authorization'];
     if (!auth || auth !== `Bearer ${CRON_SECRET}`) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
   }
-
   if (req.method !== 'GET' && req.method !== 'POST') return res.status(405).end();
 
   const startMs = Date.now();
   const tickers = [...new Set([...SCAN_UNIVERSE_CORE, ...ROTATION_POOL])];
 
-  console.log(`[scan/run] Starting scan — ${tickers.length} tickers`);
+  // Load learned weights (falls back to defaults if table empty/missing)
+  const weights = await loadSignalWeights();
 
-  // Pre-fetch SPY once; all ticker analyses reuse this
+  // Pre-fetch SPY once — all ticker analyses share this
   const spyData   = await fetchYF('SPY');
   const spyCloses = spyData?.closes || null;
 
-  // Concurrent worker pool (8 workers — fast but respectful to Yahoo Finance)
   const golden = [], bullpen = [];
   let idx = 0;
 
@@ -370,7 +429,7 @@ export default async function handler(req, res) {
     while (idx < tickers.length) {
       const ticker = tickers[idx++];
       try {
-        const { golden: gb, bullpen: bp } = await analyzeTickerBoth(ticker, spyCloses);
+        const { golden: gb, bullpen: bp } = await analyzeTickerBoth(ticker, spyCloses, weights);
         if (gb?.qualifies)  golden.push(gb);
         if (bp?.qualifies)  bullpen.push(bp);
       } catch (_) {}
@@ -379,20 +438,21 @@ export default async function handler(req, res) {
 
   await Promise.all(Array.from({ length: 8 }, worker));
 
-  const scanned = tickers.length;
-  const gbNew   = await recordBulls(golden,  'golden_bull_hof');
-  const bpNew   = await recordBulls(bullpen, 'bull_pen_hof');
-  const ms      = Date.now() - startMs;
+  const gbNew = await recordBulls(golden,  'golden_bull_hof');
+  const bpNew = await recordBulls(bullpen, 'bull_pen_hof');
+  const ms    = Date.now() - startMs;
 
   const summary = {
-    scanned, ms,
-    gb_found:   golden.length,  gb_new: gbNew,  gb_tickers: golden.map(b => b.ticker),
-    bp_found:   bullpen.length, bp_new: bpNew,  bp_tickers: bullpen.map(b => b.ticker),
+    scanned:     tickers.length,
+    gb_found:    golden.length,  gb_new: gbNew,  gb_tickers: golden.map(b => b.ticker),
+    bp_found:    bullpen.length, bp_new: bpNew,  bp_tickers: bullpen.map(b => b.ticker),
+    duration_ms: ms,
+    weights_used: Object.keys(weights).length,
   };
 
   await logScanRun(summary);
 
-  console.log(`[scan/run] Done in ${ms}ms — GB: ${golden.length} found, ${gbNew} new | BP: ${bullpen.length} found, ${bpNew} new`);
+  console.log(`[scan/run] Done ${ms}ms | GB: ${golden.length} found, ${gbNew} new | BP: ${bullpen.length} found, ${bpNew} new | ${Object.keys(weights).length} learned weights active`);
 
   return res.status(200).json(summary);
 }
