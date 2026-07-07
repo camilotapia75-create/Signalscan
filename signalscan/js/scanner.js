@@ -931,96 +931,247 @@ function calcVWAP(closes, volumes) {
 }
 
 async function quickAnalyzeForScan(ticker) {
-  const data = await fetchStockData(ticker, '3mo|6mo');
+  const data = await fetchStockData(ticker, '6mo|3mo');
   if (!data) return null;
   const { closes, volumes } = data;
-  if (closes.length < 30) return null;
+  if (closes.length < 50) return null;
 
-  const price   = closes[closes.length - 1];
-  const ema9    = calcEMA(closes, 9);
-  const ema21   = calcEMA(closes, 21);
-  const ema50   = calcEMA(closes, 50);
-  const rsi     = calcRSI(closes);
-  const macd    = calcMACD(closes);
-  const bb      = calcBB(closes);
-  const atr     = calcATR(closes);
-  const obv     = calcOBV(closes, volumes);
-  const vwap    = calcVWAP(closes, volumes);
+  const price = closes[closes.length - 1];
+  if (!price || price < 2) return null; // skip penny stocks
 
-  if (!price || !ema9 || !ema21 || !rsi || !bb) return null;
+  const ema9   = calcEMA(closes, 9);
+  const ema21  = calcEMA(closes, 21);
+  const ema50  = calcEMA(closes, 50);
+  const ema200 = calcEMA(closes, 200);
+  const rsi    = calcRSI(closes);
+  const macd   = calcMACD(closes);
+  const bb     = calcBB(closes);
+  const obv    = calcOBV(closes, volumes);
 
-  const signals = [];
+  if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return null;
 
-  // Trend
-  if (ema9 > ema21)                                        signals.push('EMA9>EMA21 bullish cross');
-  if (ema50 && price > ema50)                              signals.push('Price above EMA50');
-  if (ema9 > ema21 && ema50 && ema21 > ema50)             signals.push('Full EMA stack bullish');
+  // ── Hard gates — all must pass ──────────────────────────────
+  if (price < ema50) return null;   // must be in bull territory
+  if (rsi > 76) return null;        // not chasing overbought
 
-  // Momentum
-  if (rsi > 55 && rsi < 75)                               signals.push(`RSI momentum zone (${rsi.toFixed(0)})`);
-  if (rsi > 50 && macd && macd > 0)                       signals.push('RSI>50 + MACD positive');
-
-  // Mean reversion
-  if (bb && price < bb.mean * 1.01 && price > bb.lower)   signals.push('Near BB mean — mean reversion');
-  if (bb && price > bb.mean && price < bb.upper * 0.98)   signals.push('Above BB mean, room to upper');
-
-  // Volume
-  if (vwap && price > vwap)                               signals.push('Price above VWAP');
-  if (obv.length >= 5) {
-    const obvRecent = obv.slice(-5);
-    if (obvRecent[4] > obvRecent[0])                      signals.push('OBV trending up (buying pressure)');
+  // EMA50 slope: must be flat or rising (rejects dead-cat bounces in downtrends)
+  if (closes.length >= 70) {
+    const ema50Prior = calcEMA(closes.slice(0, -20), 50);
+    if (ema50Prior && ema50 < ema50Prior * 0.998) return null;
   }
 
-  // ATR / volatility
-  if (atr && price > 0 && atr / price < 0.025)            signals.push('Low ATR — tight volatility');
+  // ── Weighted scoring ─────────────────────────────────────────
+  let score = 0;
+  const signals = [];
 
-  const conviction = Math.min(100, Math.round(signals.length / 8 * 100));
-  const isGoldenBull = signals.length >= 5;
+  // EMA alignment — most important (3 pts for full stack, 1 pt partial)
+  if (ema9 > ema21 && ema21 > ema50) {
+    score += 3;
+    signals.push('Full EMA stack aligned (9 > 21 > 50) — confirmed uptrend');
+  } else if (ema9 > ema21) {
+    score += 1;
+    signals.push('EMA9 > EMA21 — short-term bullish momentum');
+  }
+
+  // Long-term structure: EMA200 (2 pts)
+  if (ema200 && price > ema200) {
+    score += 2;
+    signals.push(`Above EMA200 ($${ema200.toFixed(2)}) — long-term bull market structure`);
+  }
+
+  // RSI sweet spot 48–65: momentum with room to run (3 pts)
+  // 65–76: allowed by gate but no reward (0 pts)
+  // 38–48: dip zone, partial credit (1 pt)
+  if (rsi >= 48 && rsi <= 65) {
+    score += 3;
+    signals.push(`RSI ${rsi.toFixed(0)} — momentum zone, upside room intact`);
+  } else if (rsi >= 38 && rsi < 48) {
+    score += 1;
+    signals.push(`RSI ${rsi.toFixed(0)} — pulling back into support zone`);
+  }
+
+  // MACD: EMA12 > EMA26 = short-term momentum positive (2 pts)
+  if (macd && macd > 0) {
+    score += 2;
+    signals.push('MACD positive — bull momentum building');
+  }
+
+  // Extension from EMA50: healthy ≤15% (+2 pts), overextended >25% (−2 pts)
+  const extPct = (price - ema50) / ema50 * 100;
+  if (extPct <= 15) {
+    score += 2;
+    signals.push(`${extPct.toFixed(1)}% above EMA50 — healthy, room to extend`);
+  } else if (extPct > 25) {
+    score -= 2;
+    signals.push(`${extPct.toFixed(1)}% above EMA50 — overextended, high reversal risk`);
+  }
+
+  // OBV: 10-bar sustained accumulation (2 pts — 5 bars was meaningless noise)
+  if (obv.length >= 10) {
+    const o = obv.slice(-10);
+    if (o[o.length - 1] > o[0]) {
+      score += 2;
+      signals.push('OBV rising 10-day — sustained institutional accumulation');
+    }
+  }
+
+  // Volume expansion: recent 5d vs prior 20d avg (1 pt)
+  if (volumes.length >= 25) {
+    const recentVol = volumes.slice(-5).reduce((a, b) => a + (b || 0), 0) / 5;
+    const avgVol    = volumes.slice(-25, -5).reduce((a, b) => a + (b || 0), 0) / 20;
+    if (avgVol > 0 && recentVol > avgVol * 1.15) {
+      score += 1;
+      signals.push('Volume expanding above 20-day average — participation growing');
+    }
+  }
+
+  // Relative strength vs SPY over 20 days (2 pts / −1 pt)
+  try {
+    const spyData = await fetchStockData('SPY', '3mo'); // cached after first call
+    if (spyData?.closes?.length >= 20) {
+      const sc = spyData.closes.filter(Boolean);
+      const spyRet = (sc[sc.length - 1] - sc[sc.length - 20]) / sc[sc.length - 20] * 100;
+      const tkrRet = closes.length >= 20
+        ? (closes[closes.length - 1] - closes[closes.length - 20]) / closes[closes.length - 20] * 100
+        : null;
+      if (tkrRet !== null && tkrRet > spyRet + 3) {
+        score += 2;
+        signals.push(`Outperforming SPY by ${(tkrRet - spyRet).toFixed(1)}% over 20 days`);
+      } else if (tkrRet !== null && tkrRet < spyRet - 5) {
+        score -= 1;
+        signals.push('Underperforming SPY — relative weakness');
+      }
+    }
+  } catch (_) {}
+
+  // Bollinger position: between mean and upper = constructive (1 pt); above upper = short-term extended (−1 pt)
+  if (price > bb.mean && price < bb.upper) {
+    score += 1;
+    signals.push('Between BB mean and upper band — constructive trend position');
+  } else if (price > bb.upper) {
+    score -= 1;
+    signals.push('Above BB upper band — short-term overextended');
+  }
+
+  // Max possible score ≈ 18 (3+2+3+2+2+2+1+2+1)
+  // Golden Bull requires ≥10 (≥56% of max) — multiple strong signals required
+  const isGoldenBull = score >= 10;
+  const conviction   = Math.min(100, Math.max(0, Math.round(score / 18 * 100)));
 
   return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
 }
 
-async function quickAnalyzeForScanV2(ticker, spyReturn) {
-  const data = await fetchStockData(ticker, '3mo|6mo');
+async function quickAnalyzeForScanV2(ticker) {
+  const data = await fetchStockData(ticker, '6mo|3mo');
   if (!data) return null;
   const { closes, volumes } = data;
-  if (closes.length < 30) return null;
+  if (closes.length < 50) return null;
 
-  const price   = closes[closes.length - 1];
-  const ema9    = calcEMA(closes, 9);
-  const ema21   = calcEMA(closes, 21);
-  const ema50   = calcEMA(closes, 50);
-  const rsi     = calcRSI(closes);
-  const macd    = calcMACD(closes);
-  const bb      = calcBB(closes);
-  const atr     = calcATR(closes);
-  const obv     = calcOBV(closes, volumes);
-  const vwap    = calcVWAP(closes, volumes);
+  const price = closes[closes.length - 1];
+  if (!price || price < 2) return null;
 
-  if (!price || !ema9 || !ema21 || !rsi || !bb) return null;
+  const ema9   = calcEMA(closes, 9);
+  const ema21  = calcEMA(closes, 21);
+  const ema50  = calcEMA(closes, 50);
+  const ema200 = calcEMA(closes, 200);
+  const rsi    = calcRSI(closes);
+  const macd   = calcMACD(closes);
+  const bb     = calcBB(closes);
+  const obv    = calcOBV(closes, volumes);
 
+  if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return null;
+
+  // Bull Pen uses same hard gates as Golden Bull scanner
+  if (price < ema50) return null;
+  if (rsi > 78) return null; // slightly looser overbought gate for Bull Pen
+
+  if (closes.length >= 70) {
+    const ema50Prior = calcEMA(closes.slice(0, -20), 50);
+    if (ema50Prior && ema50 < ema50Prior * 0.998) return null;
+  }
+
+  let score = 0;
   const signals = [];
 
-  if (ema9 > ema21)                                        signals.push('EMA9>EMA21 bullish cross');
-  if (ema50 && price > ema50)                              signals.push('Price above EMA50');
-  if (ema9 > ema21 && ema50 && ema21 > ema50)             signals.push('Full EMA stack bullish');
-  if (rsi > 55 && rsi < 80)                               signals.push(`RSI momentum zone (${rsi.toFixed(0)})`);
-  if (rsi > 50 && macd && macd > 0)                       signals.push('RSI>50 + MACD positive');
-  if (bb && price < bb.mean * 1.02 && price > bb.lower)   signals.push('Near BB mean — mean reversion setup');
-  if (bb && price > bb.mean && price < bb.upper * 0.97)   signals.push('Above BB mean, room to upper band');
-  if (vwap && price > vwap)                               signals.push('Price above VWAP');
-  if (obv.length >= 5) {
-    const obvRecent = obv.slice(-5);
-    if (obvRecent[4] > obvRecent[0])                      signals.push('OBV trending up (buying pressure)');
-  }
-  if (atr && price > 0 && atr / price < 0.03)             signals.push('Low ATR — tight volatility');
-  if (spyReturn != null) {
-    const tickerReturn = (price - closes[0]) / closes[0] * 100;
-    if (tickerReturn > spyReturn + 3)                     signals.push(`Outperforming SPY by ${(tickerReturn - spyReturn).toFixed(1)}%`);
+  if (ema9 > ema21 && ema21 > ema50) {
+    score += 3;
+    signals.push('Full EMA stack aligned (9 > 21 > 50) — confirmed uptrend');
+  } else if (ema9 > ema21) {
+    score += 1;
+    signals.push('EMA9 > EMA21 — short-term bullish momentum');
   }
 
-  const conviction = Math.min(100, Math.round(signals.length / 9 * 100));
-  const isGoldenBull = signals.length >= 6;
+  if (ema200 && price > ema200) {
+    score += 2;
+    signals.push(`Above EMA200 ($${ema200.toFixed(2)}) — long-term bull market structure`);
+  }
+
+  if (rsi >= 45 && rsi <= 68) {
+    score += 3;
+    signals.push(`RSI ${rsi.toFixed(0)} — momentum zone`);
+  } else if (rsi >= 35 && rsi < 45) {
+    score += 1;
+    signals.push(`RSI ${rsi.toFixed(0)} — oversold bounce zone`);
+  }
+
+  if (macd && macd > 0) {
+    score += 2;
+    signals.push('MACD positive — bull momentum confirmed');
+  }
+
+  const extPct = (price - ema50) / ema50 * 100;
+  if (extPct <= 18) {
+    score += 2;
+    signals.push(`${extPct.toFixed(1)}% above EMA50 — healthy extension`);
+  } else if (extPct > 28) {
+    score -= 2;
+    signals.push(`${extPct.toFixed(1)}% above EMA50 — overextended`);
+  }
+
+  if (obv.length >= 10) {
+    const o = obv.slice(-10);
+    if (o[o.length - 1] > o[0]) {
+      score += 2;
+      signals.push('OBV rising 10-day — accumulation confirmed');
+    }
+  }
+
+  if (volumes.length >= 25) {
+    const recentVol = volumes.slice(-5).reduce((a, b) => a + (b || 0), 0) / 5;
+    const avgVol    = volumes.slice(-25, -5).reduce((a, b) => a + (b || 0), 0) / 20;
+    if (avgVol > 0 && recentVol > avgVol * 1.15) {
+      score += 1;
+      signals.push('Volume expanding above 20-day average');
+    }
+  }
+
+  try {
+    const spyData = await fetchStockData('SPY', '3mo');
+    if (spyData?.closes?.length >= 20) {
+      const sc = spyData.closes.filter(Boolean);
+      const spyRet = (sc[sc.length - 1] - sc[sc.length - 20]) / sc[sc.length - 20] * 100;
+      const tkrRet = closes.length >= 20
+        ? (closes[closes.length - 1] - closes[closes.length - 20]) / closes[closes.length - 20] * 100
+        : null;
+      if (tkrRet !== null && tkrRet > spyRet + 3) {
+        score += 2;
+        signals.push(`Outperforming SPY by ${(tkrRet - spyRet).toFixed(1)}% over 20 days`);
+      } else if (tkrRet !== null && tkrRet < spyRet - 5) {
+        score -= 1;
+      }
+    }
+  } catch (_) {}
+
+  if (price > bb.mean && price < bb.upper) {
+    score += 1;
+    signals.push('Between BB mean and upper band — constructive position');
+  } else if (price > bb.upper) {
+    score -= 1;
+  }
+
+  // Bull Pen threshold is slightly lower (≥8 vs ≥10) — catches earlier-stage setups
+  const isGoldenBull = score >= 8;
+  const conviction   = Math.min(100, Math.max(0, Math.round(score / 18 * 100)));
 
   return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
 }
@@ -1207,7 +1358,7 @@ function runBullPenScanner() {
     emptyId: 'bpScanEmpty',          headerId: 'bpScanHeader',          foundMsgId: 'bpScanFoundMsg',
     statusId: 'bpScanStatusText',    countId: 'bpScanProgressCount',    barId: 'bpScanProgressBar',
     btnLabel: '🔍 SCAN AGAIN',
-  }, (t) => quickAnalyzeForScanV2(t, spyReturn), hofRecordBullPen, renderBullPenHoF);
+  }, quickAnalyzeForScanV2, hofRecordBullPen, renderBullPenHoF);
 }
 
 async function hofRecordBullPen(bulls) {
