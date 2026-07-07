@@ -2,5 +2,15 @@
   "framework": null,
   "buildCommand": "",
   "installCommand": "",
-  "outputDirectory": "signalscan"
+  "outputDirectory": "signalscan",
+  "crons": [
+    {
+      "path": "/api/scan/run",
+      "schedule": "0 14 * * 1-5"
+    },
+    {
+      "path": "/api/scan/report",
+      "schedule": "0 15 */5 * *"
+    }
+  ]
 }
