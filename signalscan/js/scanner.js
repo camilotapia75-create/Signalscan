@@ -536,7 +536,7 @@ async function loadHofReturns() {
     const toLoad = [...byTicker.values()];
     const results = await Promise.all(toLoad.map(async s => {
       try {
-        const data = await fetchStockData(s.ticker, '1d|5d');
+        const data = await _fetchScanData(s.ticker, '1d|5d');
         const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
         if (!cur) return null;
         return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
@@ -569,7 +569,7 @@ async function loadHofReturns() {
 
       const withPct = await Promise.all(pool.map(async s => {
         try {
-          const data = await fetchStockData(s.ticker, '1d|5d');
+          const data = await _fetchScanData(s.ticker, '1d|5d');
           const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
           if (!cur) return null;
           return { ...s, pct: (cur - s.price) / s.price * 100 };
@@ -654,7 +654,7 @@ async function loadAllHofReturns() {
   for (const r of _allHofAdminRecords) byTicker.set(r.ticker, r);
   const results = await Promise.all([...byTicker.values()].map(async s => {
     try {
-      const data = await fetchStockData(s.ticker, '1d|5d');
+      const data = await _fetchScanData(s.ticker, '1d|5d');
       const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
       if (!cur) return null;
       return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
@@ -850,7 +850,7 @@ async function loadBullPenReturns() {
 
   const results = await Promise.all(toLoad.map(async s => {
     try {
-      const data = await fetchStockData(s.ticker, '1d|5d');
+      const data = await _fetchScanData(s.ticker, '1d|5d');
       const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
       if (!cur) return null;
       return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
@@ -883,7 +883,7 @@ async function loadBullPenReturns() {
 
 const ANALYSIS_CACHE = new Map();
 
-async function fetchStockData(ticker, range = '3mo') {
+async function _fetchScanData(ticker, range = '3mo') {
   const cacheKey = `${ticker}|${range}`;
   const hit = ANALYSIS_CACHE.get(cacheKey);
   if (hit && Date.now() - hit.ts < 5 * 60 * 1000) return hit.data;
@@ -979,7 +979,7 @@ function _vwapScan(closes, volumes) {
 }
 
 async function quickAnalyzeForScan(ticker) {
-  const data = await fetchStockData(ticker, '6mo|3mo');
+  const data = await _fetchScanData(ticker, '6mo|3mo');
   if (!data) return null;
   const { closes, volumes } = data;
   if (closes.length < 50) return null;
@@ -1075,7 +1075,7 @@ async function quickAnalyzeForScan(ticker) {
 
   // Relative strength vs SPY over 20 days (2 pts / −1 pt)
   try {
-    const spyData = await fetchStockData('SPY', '3mo'); // cached after first call
+    const spyData = await _fetchScanData('SPY', '3mo'); // cached after first call
     if (spyData?.closes?.length >= 20) {
       const sc = spyData.closes.filter(Boolean);
       const spyRet = (sc[sc.length - 1] - sc[sc.length - 20]) / sc[sc.length - 20] * 100;
@@ -1110,7 +1110,7 @@ async function quickAnalyzeForScan(ticker) {
 }
 
 async function quickAnalyzeForScanV2(ticker) {
-  const data = await fetchStockData(ticker, '6mo|3mo');
+  const data = await _fetchScanData(ticker, '6mo|3mo');
   if (!data) return null;
   const { closes, volumes } = data;
   if (closes.length < 50) return null;
@@ -1194,7 +1194,7 @@ async function quickAnalyzeForScanV2(ticker) {
   }
 
   try {
-    const spyData = await fetchStockData('SPY', '3mo');
+    const spyData = await _fetchScanData('SPY', '3mo');
     if (spyData?.closes?.length >= 20) {
       const sc = spyData.closes.filter(Boolean);
       const spyRet = (sc[sc.length - 1] - sc[sc.length - 20]) / sc[sc.length - 20] * 100;
@@ -1248,7 +1248,7 @@ async function runAnalysis() {
   if (loadingDiv) loadingDiv.style.display = 'block';
 
   try {
-    const data = await fetchStockData(ticker, '6mo|3mo|1mo');
+    const data = await _fetchScanData(ticker, '6mo|3mo|1mo');
     if (!data || data.closes.length < 20) {
       if (loadingDiv) loadingDiv.style.display = 'none';
       if (resultDiv) {
@@ -1389,7 +1389,7 @@ let _spyReturn     = null;
 async function getSpyReturn() {
   if (_spyReturn !== null) return _spyReturn;
   try {
-    const data = await fetchStockData('SPY', '3mo');
+    const data = await _fetchScanData('SPY', '3mo');
     if (data?.closes?.length >= 2) {
       const c = data.closes.filter(Boolean);
       _spyReturn = (c[c.length - 1] - c[0]) / c[0] * 100;

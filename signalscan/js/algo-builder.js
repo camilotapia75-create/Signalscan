@@ -422,7 +422,7 @@ function resetV2Builder() {
 // ── Custom scan engine ────────────────────────────────────────────────────────
 
 async function analyzeWithConfig(ticker, config, spyCloses) {
-  const data = await fetchStockData(ticker, '6mo|3mo');
+  const data = await _fetchScanData(ticker, '6mo|3mo');
   if (!data) return null;
   const { closes, volumes } = data;
   if (closes.length < 50) return null;
@@ -573,7 +573,7 @@ async function runV2Scan() {
   let done = 0, idx = 0;
   const hits = [];
 
-  const spyData   = await fetchStockData('SPY', '3mo');
+  const spyData   = await _fetchScanData('SPY', '3mo');
   const spyCloses = spyData?.closes || null;
 
   async function worker() {
