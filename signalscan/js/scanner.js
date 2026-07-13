@@ -130,10 +130,31 @@ async function _runScanCore(tickers, ui, quickFn, recordFn, renderFn) {
   }
 }
 
+function switchAppTab(tab) {
+  const analyzeEl = document.getElementById('appSectionAnalyze');
+  const algoEl    = document.getElementById('appSectionAlgoLab');
+  const btnAnalyze = document.getElementById('appTabAnalyze');
+  const btnAlgo    = document.getElementById('appTabAlgoLab');
+
+  if (analyzeEl) analyzeEl.style.display = tab === 'analyze' ? 'block' : 'none';
+  if (algoEl)    algoEl.style.display    = tab === 'algolab' ? 'block' : 'none';
+
+  if (btnAnalyze) {
+    btnAnalyze.style.color       = tab === 'analyze' ? 'var(--accent)' : 'var(--muted)';
+    btnAnalyze.style.borderBottom = tab === 'analyze' ? '2px solid var(--accent)' : '2px solid transparent';
+  }
+  if (btnAlgo) {
+    btnAlgo.style.color       = tab === 'algolab' ? '#9b6bff' : 'var(--muted)';
+    btnAlgo.style.borderBottom = tab === 'algolab' ? '2px solid #9b6bff' : '2px solid transparent';
+  }
+
+  if (tab === 'algolab' && typeof initV2Builder === 'function') initV2Builder();
+}
+
 function switchScanTab(tab) {
-  const tabs   = ['original', 'bullpen', 'v2'];
-  const panels = { original: 'scanPanelOriginal', bullpen: 'scanPanelBullpen', v2: 'scanPanelV2' };
-  const tabBtns = { original: 'scanTabOriginal', bullpen: 'scanTabBullpen', v2: 'scanTabV2' };
+  const tabs   = ['original', 'bullpen'];
+  const panels = { original: 'scanPanelOriginal', bullpen: 'scanPanelBullpen' };
+  const tabBtns = { original: 'scanTabOriginal', bullpen: 'scanTabBullpen' };
 
   tabs.forEach(t => {
     const panel = document.getElementById(panels[t]);
@@ -141,13 +162,8 @@ function switchScanTab(tab) {
     if (panel) panel.style.display = t === tab ? 'block' : 'none';
     if (btn) {
       if (t === tab) {
-        if (t === 'v2') {
-          btn.style.background = '#9b6bff'; btn.style.color = '#fff';
-        } else if (t === 'bullpen') {
-          btn.style.background = 'rgba(255,140,80,0.8)'; btn.style.color = '#000';
-        } else {
-          btn.style.background = 'var(--gold)'; btn.style.color = '#000';
-        }
+        btn.style.background = t === 'bullpen' ? 'rgba(255,140,80,0.8)' : 'var(--gold)';
+        btn.style.color = '#000';
       } else {
         btn.style.background = 'transparent'; btn.style.color = 'var(--muted)';
       }
@@ -156,12 +172,8 @@ function switchScanTab(tab) {
 
   const scanBtn   = document.getElementById('scanBtn');
   const bpScanBtn = document.getElementById('bpScanBtn');
-  const v2ScanBtn = document.getElementById('v2RunBtn');
   if (scanBtn)   scanBtn.style.display   = tab === 'original' ? 'inline-block' : 'none';
   if (bpScanBtn) bpScanBtn.style.display = tab === 'bullpen'  ? 'inline-block' : 'none';
-  if (v2ScanBtn) v2ScanBtn.style.display = tab === 'v2'       ? 'inline-block' : 'none';
-
-  if (tab === 'v2' && typeof initV2Builder === 'function') initV2Builder();
 }
 
 function runScanner() {
