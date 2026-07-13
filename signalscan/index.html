@@ -144,6 +144,74 @@
 .v2-btn-primary:hover {
   box-shadow: 0 0 22px rgba(155,107,255,0.5) !important;
 }
+
+/* ── Header deeper glass ── */
+header {
+  background: rgba(5,7,9,0.88) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+}
+
+/* ── Indicator cells ── */
+.ind-cell { transition: background 0.2s ease !important; }
+.ind-cell:hover { background: rgba(255,255,255,0.03) !important; }
+
+/* ── News item — left-border reveal + slide ── */
+.news-item {
+  border-left: 2px solid transparent !important;
+  transition: background 0.2s ease, padding-left 0.2s ease, border-color 0.2s ease !important;
+}
+.news-item:hover {
+  background: rgba(255,255,255,0.035) !important;
+  border-left-color: var(--accent) !important;
+  padding-left: 22px !important;
+}
+
+/* ── Scan button glow ── */
+.scan-btn { transition: all 0.2s ease !important; }
+.scan-btn:hover:not(:disabled) {
+  box-shadow: 0 0 22px rgba(255,204,68,0.4) !important;
+  transform: translateY(-2px) !important;
+}
+
+/* ── HOF table row hover ── */
+#hofTbody tr, #bpHofTbody tr, #allHofTbody tr {
+  transition: background 0.15s ease !important;
+}
+#hofTbody tr:hover, #bpHofTbody tr:hover, #allHofTbody tr:hover {
+  background: rgba(155,107,255,0.06) !important;
+}
+
+/* ── V2 algo cards lift ── */
+.v2-algo-card {
+  transition: transform 0.2s cubic-bezier(0.34,1.56,0.64,1),
+              border-color 0.2s ease,
+              box-shadow 0.2s ease !important;
+}
+.v2-algo-card:hover {
+  transform: translateY(-3px) !important;
+  border-color: rgba(155,107,255,0.55) !important;
+  box-shadow: 0 10px 28px rgba(155,107,255,0.12) !important;
+}
+
+/* ── Analyze button shimmer on hover ── */
+@keyframes btnShimmer {
+  0%   { left: -80%; }
+  100% { left: 130%;  }
+}
+.analyze-btn::after {
+  content: '';
+  position: absolute; top: 0; left: -80%;
+  width: 55%; height: 100%;
+  background: linear-gradient(90deg,transparent,rgba(255,255,255,0.28),transparent);
+  animation: none;
+}
+.analyze-btn:hover::after { animation: btnShimmer 0.55s ease forwards; }
+.analyze-btn:hover {
+  box-shadow: 0 0 28px rgba(0,255,136,0.4) !important;
+  transform: translateY(-2px) !important;
+}
 </style>
 </head>
 <body>
