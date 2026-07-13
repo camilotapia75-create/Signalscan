@@ -35,38 +35,195 @@ const V2_SIGNAL_DEFS = [
   { key: 'bb_extended',       label: 'BB Overextended ⚠',       points: -1, params: [] },
 ];
 
+// ── Signal mini-chart SVGs ────────────────────────────────────────────────────
+
+const V2_CHARTS = {
+  ema_full_stack: `<svg viewBox="0 0 220 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <polyline points="0,46 28,40 56,32 84,26 112,18 140,13 168,9 196,5 220,3" stroke="#00ff88" stroke-width="2" opacity="0.95"/>
+    <polyline points="0,50 28,45 56,38 84,31 112,23 140,17 168,13 196,9 220,7" stroke="#4d9fff" stroke-width="1.5" opacity="0.75"/>
+    <polyline points="0,53 28,49 56,45 84,40 112,34 140,28 168,23 196,18 220,15" stroke="#ff9055" stroke-width="1.3" opacity="0.65"/>
+    <polyline points="0,56 28,54 56,51 84,48 112,44 140,40 168,36 196,32 220,29" stroke="#ffcc44" stroke-width="1" opacity="0.5" stroke-dasharray="4,3"/>
+    <text x="4" y="11" font-size="7" fill="rgba(0,255,136,0.5)" font-family="monospace">9</text>
+    <text x="4" y="23" font-size="7" fill="rgba(77,159,255,0.5)" font-family="monospace">21</text>
+    <text x="4" y="35" font-size="7" fill="rgba(255,144,85,0.5)" font-family="monospace">50</text></svg>`,
+  ema_partial: `<svg viewBox="0 0 220 56" fill="none">
+    <polyline points="0,50 56,38 112,22 168,14 220,8" stroke="#00ff88" stroke-width="2" opacity="0.9"/>
+    <polyline points="0,53 56,44 112,32 168,23 220,16" stroke="#4d9fff" stroke-width="1.5" opacity="0.7"/>
+    <polyline points="0,55 56,52 112,47 168,43 220,39" stroke="#ffcc44" stroke-width="1" stroke-dasharray="4,3" opacity="0.45"/>
+    <text x="4" y="16" font-size="7" fill="rgba(0,255,136,0.5)" font-family="monospace">EMA9</text>
+    <text x="4" y="28" font-size="7" fill="rgba(77,159,255,0.5)" font-family="monospace">EMA21</text></svg>`,
+  ema200_above: `<svg viewBox="0 0 220 56" fill="none">
+    <polyline points="0,50 55,47 110,43 165,40 220,37" stroke="#ffcc44" stroke-width="1.2" stroke-dasharray="5,3" opacity="0.55"/>
+    <polyline points="0,40 55,30 110,20 165,22 220,15" stroke="#00ff88" stroke-width="2" opacity="0.9"/>
+    <text x="130" y="52" font-size="7" fill="rgba(255,204,68,0.6)" font-family="monospace">EMA200</text></svg>`,
+  rsi_momentum: `<svg viewBox="0 0 220 56" fill="none">
+    <rect x="0" y="18" width="220" height="18" fill="rgba(0,255,136,0.1)" rx="1"/>
+    <line x1="0" y1="18" x2="220" y2="18" stroke="rgba(0,255,136,0.35)" stroke-width="0.8" stroke-dasharray="4,3"/>
+    <line x1="0" y1="36" x2="220" y2="36" stroke="rgba(0,255,136,0.35)" stroke-width="0.8" stroke-dasharray="4,3"/>
+    <text x="3" y="16" font-size="7" fill="rgba(0,255,136,0.55)" font-family="monospace">65</text>
+    <text x="3" y="44" font-size="7" fill="rgba(0,255,136,0.55)" font-family="monospace">48</text>
+    <polyline points="0,44 28,32 56,26 84,30 112,24 140,28 168,25 196,29 220,26" stroke="#00ff88" stroke-width="2" opacity="0.9"/></svg>`,
+  rsi_dip: `<svg viewBox="0 0 220 56" fill="none">
+    <rect x="0" y="28" width="220" height="14" fill="rgba(77,159,255,0.1)" rx="1"/>
+    <line x1="0" y1="28" x2="220" y2="28" stroke="rgba(77,159,255,0.35)" stroke-width="0.8" stroke-dasharray="4,3"/>
+    <line x1="0" y1="42" x2="220" y2="42" stroke="rgba(77,159,255,0.35)" stroke-width="0.8" stroke-dasharray="4,3"/>
+    <text x="3" y="26" font-size="7" fill="rgba(77,159,255,0.55)" font-family="monospace">48</text>
+    <text x="3" y="51" font-size="7" fill="rgba(77,159,255,0.55)" font-family="monospace">38</text>
+    <polyline points="0,14 40,22 80,36 100,38 120,35 150,32 180,38 220,34" stroke="#4d9fff" stroke-width="2" opacity="0.9"/></svg>`,
+  macd_positive: `<svg viewBox="0 0 220 56" fill="none">
+    <line x1="0" y1="38" x2="220" y2="38" stroke="rgba(255,255,255,0.1)" stroke-width="0.8"/>
+    <rect x="6"   y="28" width="13" height="10" fill="rgba(0,255,136,0.45)" rx="1"/>
+    <rect x="26"  y="22" width="13" height="16" fill="rgba(0,255,136,0.55)" rx="1"/>
+    <rect x="46"  y="16" width="13" height="22" fill="rgba(0,255,136,0.65)" rx="1"/>
+    <rect x="66"  y="19" width="13" height="19" fill="rgba(0,255,136,0.60)" rx="1"/>
+    <rect x="86"  y="13" width="13" height="25" fill="rgba(0,255,136,0.70)" rx="1"/>
+    <rect x="106" y="17" width="13" height="21" fill="rgba(0,255,136,0.62)" rx="1"/>
+    <rect x="126" y="10" width="13" height="28" fill="rgba(0,255,136,0.75)" rx="1"/>
+    <rect x="146" y="7"  width="13" height="31" fill="rgba(0,255,136,0.80)" rx="1"/>
+    <rect x="166" y="4"  width="13" height="34" fill="rgba(0,255,136,0.85)" rx="1"/>
+    <rect x="186" y="2"  width="13" height="36" fill="rgba(0,255,136,0.90)" rx="1"/>
+    <polyline points="12,32 32,25 52,18 72,22 92,15 112,20 132,12 152,9 172,6 192,4" stroke="#ffcc44" stroke-width="1.3" opacity="0.7"/></svg>`,
+  extension_healthy: `<svg viewBox="0 0 220 56" fill="none">
+    <rect x="0" y="8" width="220" height="30" fill="rgba(0,255,136,0.07)" rx="1"/>
+    <line x1="0" y1="8" x2="220" y2="8" stroke="rgba(0,255,136,0.3)" stroke-width="0.8" stroke-dasharray="4,3"/>
+    <polyline points="0,52 55,46 110,38 165,28 220,20" stroke="#ffcc44" stroke-width="1.2" stroke-dasharray="4,3" opacity="0.5"/>
+    <polyline points="0,48 55,40 110,30 165,22 220,16" stroke="#00ff88" stroke-width="2" opacity="0.9"/>
+    <text x="3" y="16" font-size="7" fill="rgba(0,255,136,0.5)" font-family="monospace">≤15% ext</text></svg>`,
+  extension_over: `<svg viewBox="0 0 220 56" fill="none">
+    <rect x="0" y="2" width="220" height="14" fill="rgba(255,61,107,0.08)" rx="1"/>
+    <line x1="0" y1="16" x2="220" y2="16" stroke="rgba(255,61,107,0.35)" stroke-width="0.8" stroke-dasharray="4,3"/>
+    <polyline points="0,52 55,46 110,38 165,28 220,20" stroke="#ffcc44" stroke-width="1.2" stroke-dasharray="4,3" opacity="0.5"/>
+    <polyline points="0,46 55,35 110,20 165,9 220,4" stroke="#ff3d6b" stroke-width="2" opacity="0.9"/>
+    <text x="3" y="14" font-size="7" fill="rgba(255,61,107,0.6)" font-family="monospace">>25%</text></svg>`,
+  obv_rising: `<svg viewBox="0 0 220 56" fill="none">
+    <rect x="4"   y="42" width="14" height="13" fill="rgba(77,159,255,0.22)" rx="1"/>
+    <rect x="24"  y="38" width="14" height="17" fill="rgba(77,159,255,0.27)" rx="1"/>
+    <rect x="44"  y="40" width="14" height="15" fill="rgba(77,159,255,0.22)" rx="1"/>
+    <rect x="64"  y="35" width="14" height="20" fill="rgba(77,159,255,0.32)" rx="1"/>
+    <rect x="84"  y="28" width="14" height="27" fill="rgba(77,159,255,0.38)" rx="1"/>
+    <rect x="104" y="22" width="14" height="33" fill="rgba(77,159,255,0.44)" rx="1"/>
+    <rect x="124" y="18" width="14" height="37" fill="rgba(77,159,255,0.50)" rx="1"/>
+    <rect x="144" y="12" width="14" height="43" fill="rgba(77,159,255,0.56)" rx="1"/>
+    <polyline points="0,54 30,47 60,42 90,35 120,27 150,20 180,12 220,6" stroke="#4d9fff" stroke-width="2" opacity="0.9"/></svg>`,
+  volume_expanding: `<svg viewBox="0 0 220 56" fill="none">
+    <rect x="4"   y="40" width="16" height="15" fill="rgba(155,107,255,0.30)" rx="1"/>
+    <rect x="26"  y="36" width="16" height="19" fill="rgba(155,107,255,0.30)" rx="1"/>
+    <rect x="48"  y="38" width="16" height="17" fill="rgba(155,107,255,0.30)" rx="1"/>
+    <rect x="70"  y="35" width="16" height="20" fill="rgba(155,107,255,0.30)" rx="1"/>
+    <rect x="92"  y="37" width="16" height="18" fill="rgba(155,107,255,0.30)" rx="1"/>
+    <rect x="114" y="39" width="16" height="16" fill="rgba(155,107,255,0.30)" rx="1"/>
+    <rect x="136" y="40" width="16" height="15" fill="rgba(155,107,255,0.30)" rx="1"/>
+    <rect x="160" y="5"  width="20" height="50" fill="rgba(155,107,255,0.85)" rx="1"/>
+    <text x="160" y="13" font-size="8" fill="#9b6bff" font-family="monospace" font-weight="700">↑×</text></svg>`,
+  spy_outperform: `<svg viewBox="0 0 220 56" fill="none">
+    <polyline points="0,44 55,40 110,36 165,34 220,32" stroke="#4d9fff" stroke-width="1.5" opacity="0.6"/>
+    <polyline points="0,44 55,34 110,22 165,14 220,7" stroke="#00ff88" stroke-width="2" opacity="0.9"/>
+    <text x="148" y="25" font-size="7" fill="rgba(0,255,136,0.7)" font-family="monospace">STOCK</text>
+    <text x="148" y="44" font-size="7" fill="rgba(77,159,255,0.7)" font-family="monospace">SPY</text></svg>`,
+  spy_underperform: `<svg viewBox="0 0 220 56" fill="none">
+    <polyline points="0,44 55,40 110,36 165,34 220,32" stroke="#4d9fff" stroke-width="1.5" opacity="0.6"/>
+    <polyline points="0,44 55,47 110,50 165,49 220,54" stroke="#ff3d6b" stroke-width="2" opacity="0.9"/>
+    <text x="148" y="38" font-size="7" fill="rgba(77,159,255,0.7)" font-family="monospace">SPY</text>
+    <text x="148" y="53" font-size="7" fill="rgba(255,61,107,0.7)" font-family="monospace">STOCK</text></svg>`,
+  bb_constructive: `<svg viewBox="0 0 220 56" fill="none">
+    <polyline points="0,10 55,9 110,11 165,8 220,10" stroke="rgba(255,255,255,0.2)" stroke-width="1" stroke-dasharray="3,3"/>
+    <polyline points="0,46 55,48 110,46 165,49 220,47" stroke="rgba(255,255,255,0.2)" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="0" y1="28" x2="220" y2="28" stroke="rgba(255,255,255,0.1)" stroke-width="0.7"/>
+    <polyline points="0,34 44,26 88,19 110,22 140,16 175,20 220,17" stroke="#00ff88" stroke-width="2" opacity="0.9"/>
+    <text x="3" y="9" font-size="7" fill="rgba(255,255,255,0.3)" font-family="monospace">upper</text></svg>`,
+  bb_extended: `<svg viewBox="0 0 220 56" fill="none">
+    <polyline points="0,12 55,10 110,12 165,9 220,8" stroke="rgba(255,255,255,0.2)" stroke-width="1" stroke-dasharray="3,3"/>
+    <polyline points="0,46 55,48 110,46 165,49 220,47" stroke="rgba(255,255,255,0.2)" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="0" y1="29" x2="220" y2="29" stroke="rgba(255,255,255,0.1)" stroke-width="0.7"/>
+    <polyline points="0,36 44,24 88,13 110,7 140,4 175,3 220,2" stroke="#ff3d6b" stroke-width="2" opacity="0.9"/>
+    <text x="3" y="9" font-size="7" fill="rgba(255,61,107,0.5)" font-family="monospace">↑ above</text></svg>`,
+};
+
+// ── Slider helpers ────────────────────────────────────────────────────────────
+
+function _v2Fill(input) {
+  const min = parseFloat(input.min), max = parseFloat(input.max), val = parseFloat(input.value);
+  const pct = Math.round(((val - min) / (max - min)) * 100);
+  const isPts = input.classList.contains('v2-range-pts');
+  const c = isPts ? 'rgba(255,204,68,0.85)' : '#9b6bff';
+  input.style.background = `linear-gradient(to right,${c} ${pct}%,rgba(255,255,255,0.07) ${pct}%)`;
+}
+
+function _v2Disp(key, param, value, isFloat) {
+  const el = document.getElementById(`v2-val-${key}-${param}`);
+  if (el) { const v = parseFloat(value); el.textContent = isFloat ? v.toFixed(2) : Math.round(v); }
+}
+
+function _v2Pts(key, value) {
+  const v = parseFloat(value);
+  const str = (v > 0 ? '+' : '') + (v % 1 === 0 ? v : v.toFixed(1)) + ' pts';
+  const valEl = document.getElementById(`v2-pts-val-${key}`);
+  const badge = document.getElementById(`v2-pts-badge-${key}`);
+  if (valEl) valEl.textContent = str;
+  if (badge) badge.textContent = str;
+}
+
 // ── Builder UI ────────────────────────────────────────────────────────────────
 
 function initV2Builder() {
   const container = document.getElementById('v2SignalRows');
-  if (!container) return;
+  if (!container || container.dataset.built) return;
+  container.dataset.built = '1';
 
   container.innerHTML = V2_SIGNAL_DEFS.map(def => {
     const isNeg = def.points < 0;
-    const paramInputs = def.params.map(p =>
-      `<span class="v2-param-group">
-        <span class="v2-param-label">${p.label}</span>
-        <input class="v2-param-input" type="number"
-          data-key="${def.key}" data-param="${p.id}"
-          value="${p.default}" min="${p.min}" max="${p.max}" step="${p.step}">
-      </span>`
-    ).join('');
+    const ptsStr = (def.points > 0 ? '+' : '') + def.points + ' pts';
+    const chart = V2_CHARTS[def.key] || '';
 
-    return `<div class="v2-signal-row${isNeg ? ' v2-signal-neg' : ''}">
-      <label class="v2-toggle">
-        <input type="checkbox" data-sig-key="${def.key}" ${def.points > 0 ? 'checked' : ''}>
-        <span class="v2-toggle-track"></span>
-      </label>
-      <span class="v2-signal-label">${def.label}</span>
-      <span class="v2-pts-group">
-        <input class="v2-pts-input" type="number" data-pts-for="${def.key}"
-          value="${def.points}" min="-15" max="15" step="0.5">
-        <span class="v2-pts-label">pts</span>
-      </span>
-      ${paramInputs}
+    const paramSliders = def.params.map(p => {
+      const isFloat = p.step < 1;
+      const dispVal = isFloat ? p.default.toFixed(2) : p.default;
+      return `<div class="v2-sl-row">
+        <div class="v2-sl-hdr">
+          <span class="v2-sl-lbl">${p.label.toUpperCase()}</span>
+          <span class="v2-sl-val" id="v2-val-${def.key}-${p.id}">${dispVal}</span>
+        </div>
+        <div class="v2-sl-trk">
+          <span class="v2-sl-endpoint">${p.min}</span>
+          <input type="range" class="v2-range"
+            data-key="${def.key}" data-param="${p.id}"
+            value="${p.default}" min="${p.min}" max="${p.max}" step="${p.step}"
+            oninput="_v2Disp('${def.key}','${p.id}',this.value,${isFloat});_v2Fill(this)">
+          <span class="v2-sl-endpoint">${p.max}</span>
+        </div>
+      </div>`;
+    }).join('');
+
+    const ptsMin = isNeg ? -15 : -8, ptsMax = isNeg ? 8 : 15;
+    return `<div class="v2-sig-card${isNeg ? ' v2-sig-neg-card' : ''}">
+      <div class="v2-sig-hdr">
+        <label class="v2-toggle">
+          <input type="checkbox" data-sig-key="${def.key}" ${def.points > 0 ? 'checked' : ''}>
+          <span class="v2-toggle-track"></span>
+        </label>
+        <span class="v2-sig-name${isNeg ? ' v2-sig-neg-name' : ''}">${def.label}</span>
+        <span class="v2-sig-badge${isNeg ? ' v2-sig-neg-badge' : ''}" id="v2-pts-badge-${def.key}">${ptsStr}</span>
+      </div>
+      <div class="v2-sig-chart">${chart}</div>
+      ${paramSliders}
+      <div class="v2-sl-row v2-wt-row">
+        <div class="v2-sl-hdr">
+          <span class="v2-sl-lbl">WEIGHT</span>
+          <span class="v2-sl-val v2-wt-val" id="v2-pts-val-${def.key}">${ptsStr}</span>
+        </div>
+        <div class="v2-sl-trk">
+          <span class="v2-sl-endpoint">${ptsMin}</span>
+          <input type="range" class="v2-range v2-range-pts"
+            data-pts-for="${def.key}"
+            value="${def.points}" min="${ptsMin}" max="${ptsMax}" step="0.5"
+            oninput="_v2Pts('${def.key}',this.value);_v2Fill(this)">
+          <span class="v2-sl-endpoint">+${ptsMax}</span>
+        </div>
+      </div>
     </div>`;
   }).join('');
 
+  container.querySelectorAll('.v2-range').forEach(_v2Fill);
   loadCommunityAlgos();
 }
 
@@ -115,17 +272,26 @@ function loadConfigIntoBuilder(config) {
       const chk = document.querySelector(`input[type="checkbox"][data-sig-key="${s.key}"]`);
       const pts = document.querySelector(`input[data-pts-for="${s.key}"]`);
       if (chk) chk.checked = s.enabled !== false;
-      if (pts) pts.value   = s.points;
+      if (pts) { pts.value = s.points; _v2Fill(pts); _v2Pts(s.key, s.points); }
       for (const [param, val] of Object.entries(s)) {
         if (['key','enabled','points'].includes(param)) continue;
+        const def = V2_SIGNAL_DEFS.find(d => d.key === s.key);
+        const pDef = def?.params.find(p => p.id === param);
         const el = document.querySelector(`input[data-key="${s.key}"][data-param="${param}"]`);
-        if (el) el.value = val;
+        if (el) {
+          el.value = val;
+          _v2Fill(el);
+          _v2Disp(s.key, param, val, pDef ? pDef.step < 1 : false);
+        }
       }
     }
   }
 }
 
 function resetV2Builder() {
+  const container = document.getElementById('v2SignalRows');
+  if (container) delete container.dataset.built;
+  initV2Builder();
   const defaults = {
     scoreThreshold: 10,
     gates: { minPrice: 2, maxRSI: 76, requireAboveEMA50: true, requireRisingEMA50Slope: true },
@@ -154,10 +320,10 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
   const g = config.gates || {};
   if (!price || price < (g.minPrice ?? 2)) return null;
 
-  const ema9   = calcEMA(closes, 9);
-  const ema21  = calcEMA(closes, 21);
-  const ema50  = calcEMA(closes, 50);
-  const ema200 = calcEMA(closes, 200);
+  const ema9   = _emaScalar(closes, 9);
+  const ema21  = _emaScalar(closes, 21);
+  const ema50  = _emaScalar(closes, 50);
+  const ema200 = _emaScalar(closes, 200);
   const rsi    = calcRSI(closes);
   const macd   = calcMACD(closes);
   const bb     = calcBB(closes);
@@ -168,7 +334,7 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
   if (g.requireAboveEMA50 !== false && price < ema50) return null;
   if (rsi > (g.maxRSI ?? 76)) return null;
   if (g.requireRisingEMA50Slope !== false && closes.length >= 70) {
-    const prior = calcEMA(closes.slice(0, -20), 50);
+    const prior = _emaScalar(closes.slice(0, -20), 50);
     if (prior && ema50 < prior * 0.998) return null;
   }
 

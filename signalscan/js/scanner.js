@@ -772,7 +772,7 @@ async function _renderBullPenPublicTable(records, gen) {
     tbody.innerHTML = rows.map(s => {
       const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const price  = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color  = s.pct != null ? (s.pct >= 0 ? '#ff9055' : 'var(--accent2)') : 'var(--muted)';
+      const color  = s.pct != null ? (s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)') : 'var(--muted)';
       const pctStr = s.pct != null ? `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%` : '—';
       return `<tr>
         <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
@@ -863,7 +863,7 @@ async function loadBullPenReturns() {
     tbody.innerHTML = sorted.map(s => {
       const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
       const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color = s.pct >= 0 ? '#ff9055' : 'var(--accent2)';
+      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
       const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
       return `<tr>
         <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
@@ -911,7 +911,7 @@ async function fetchStockData(ticker, range = '3mo') {
   return data;
 }
 
-function calcEMA(closes, period) {
+function _emaScalar(closes, period) {
   if (closes.length < period) return null;
   const k = 2 / (period + 1);
   let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
@@ -937,8 +937,8 @@ function calcRSI(closes, period = 14) {
 }
 
 function calcMACD(closes) {
-  const ema12 = calcEMA(closes, 12);
-  const ema26 = calcEMA(closes, 26);
+  const ema12 = _emaScalar(closes, 12);
+  const ema26 = _emaScalar(closes, 26);
   if (ema12 == null || ema26 == null) return null;
   return ema12 - ema26;
 }
@@ -987,10 +987,10 @@ async function quickAnalyzeForScan(ticker) {
   const price = closes[closes.length - 1];
   if (!price || price < 2) return null; // skip penny stocks
 
-  const ema9   = calcEMA(closes, 9);
-  const ema21  = calcEMA(closes, 21);
-  const ema50  = calcEMA(closes, 50);
-  const ema200 = calcEMA(closes, 200);
+  const ema9   = _emaScalar(closes, 9);
+  const ema21  = _emaScalar(closes, 21);
+  const ema50  = _emaScalar(closes, 50);
+  const ema200 = _emaScalar(closes, 200);
   const rsi    = calcRSI(closes);
   const macd   = calcMACD(closes);
   const bb     = calcBB(closes);
@@ -1004,7 +1004,7 @@ async function quickAnalyzeForScan(ticker) {
 
   // EMA50 slope: must be flat or rising (rejects dead-cat bounces in downtrends)
   if (closes.length >= 70) {
-    const ema50Prior = calcEMA(closes.slice(0, -20), 50);
+    const ema50Prior = _emaScalar(closes.slice(0, -20), 50);
     if (ema50Prior && ema50 < ema50Prior * 0.998) return null;
   }
 
@@ -1118,10 +1118,10 @@ async function quickAnalyzeForScanV2(ticker) {
   const price = closes[closes.length - 1];
   if (!price || price < 2) return null;
 
-  const ema9   = calcEMA(closes, 9);
-  const ema21  = calcEMA(closes, 21);
-  const ema50  = calcEMA(closes, 50);
-  const ema200 = calcEMA(closes, 200);
+  const ema9   = _emaScalar(closes, 9);
+  const ema21  = _emaScalar(closes, 21);
+  const ema50  = _emaScalar(closes, 50);
+  const ema200 = _emaScalar(closes, 200);
   const rsi    = calcRSI(closes);
   const macd   = calcMACD(closes);
   const bb     = calcBB(closes);
@@ -1134,7 +1134,7 @@ async function quickAnalyzeForScanV2(ticker) {
   if (rsi > 78) return null; // slightly looser overbought gate for Bull Pen
 
   if (closes.length >= 70) {
-    const ema50Prior = calcEMA(closes.slice(0, -20), 50);
+    const ema50Prior = _emaScalar(closes.slice(0, -20), 50);
     if (ema50Prior && ema50 < ema50Prior * 0.998) return null;
   }
 
@@ -1260,10 +1260,10 @@ async function runAnalysis() {
 
     const { closes, volumes, timestamps } = data;
     const price   = closes[closes.length - 1];
-    const ema9    = calcEMA(closes, 9);
-    const ema21   = calcEMA(closes, 21);
-    const ema50   = calcEMA(closes, 50);
-    const ema200  = calcEMA(closes, 200);
+    const ema9    = _emaScalar(closes, 9);
+    const ema21   = _emaScalar(closes, 21);
+    const ema50   = _emaScalar(closes, 50);
+    const ema200  = _emaScalar(closes, 200);
     const rsi     = calcRSI(closes);
     const macd    = calcMACD(closes);
     const bb      = calcBB(closes);
@@ -1343,8 +1343,8 @@ async function runAnalysis() {
         const d = new Date(t * 1000);
         return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       });
-      const ema9Arr  = closes.map((_, i) => i >= 8  ? calcEMA(closes.slice(0, i + 1), 9)  : null);
-      const ema21Arr = closes.map((_, i) => i >= 20 ? calcEMA(closes.slice(0, i + 1), 21) : null);
+      const ema9Arr  = closes.map((_, i) => i >= 8  ? _emaScalar(closes.slice(0, i + 1), 9)  : null);
+      const ema21Arr = closes.map((_, i) => i >= 20 ? _emaScalar(closes.slice(0, i + 1), 21) : null);
       _chartInstance = new Chart(ctx, {
         type: 'line',
         data: {
