@@ -111,11 +111,9 @@ function renderAuthState() {
   renderProGate();
   updateAds();
   if (isSubscribed()) loadWatchlist();
-  if (currentUser?.email === 'camilotapia75@gmail.com' && typeof renderHoF === 'function') {
-    renderHoF();
-    if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
-    if (typeof renderAllHoF === 'function') renderAllHoF();
-  }
+  if (typeof renderHoF === 'function') renderHoF();
+  if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
+  if (typeof renderAllHoF === 'function') renderAllHoF();
 }
 
 let _adInjected = false;
