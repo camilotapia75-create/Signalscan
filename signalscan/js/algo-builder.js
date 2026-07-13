@@ -355,7 +355,7 @@ function getBuilderConfig() {
 
   return {
     version:        2,
-    scoreThreshold: parseFloat(document.getElementById('v2ScoreThreshold')?.value ?? 10),
+    scoreThreshold: parseFloat(document.getElementById('v2ScoreThreshold')?.value ?? 13),
     gates: {
       minPrice:                parseFloat(document.getElementById('v2GateMinPrice')?.value ?? 2),
       maxRSI:                  parseFloat(document.getElementById('v2GateMaxRSI')?.value   ?? 76),
@@ -404,7 +404,7 @@ function resetV2Builder() {
   if (container) delete container.dataset.built;
   initV2Builder();
   const defaults = {
-    scoreThreshold: 10,
+    scoreThreshold: 13,
     gates: { minPrice: 2, maxRSI: 76, requireAboveEMA50: true, requireRisingEMA50Slope: true },
     signals: V2_SIGNAL_DEFS.map(d => {
       const e = { key: d.key, enabled: d.points > 0, points: d.points };

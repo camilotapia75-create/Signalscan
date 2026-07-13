@@ -883,8 +883,8 @@ async function loadBullPenReturns() {
 
 const ANALYSIS_CACHE = new Map();
 
-async function _fetchScanData(ticker, range = '3mo') {
-  const cacheKey = `${ticker}|${range}`;
+async function _fetchScanData(ticker, range = '3mo', interval = '1d') {
+  const cacheKey = `${ticker}|${range}|${interval}`;
   const hit = ANALYSIS_CACHE.get(cacheKey);
   if (hit && Date.now() - hit.ts < 5 * 60 * 1000) return hit.data;
 
@@ -892,23 +892,31 @@ async function _fetchScanData(ticker, range = '3mo') {
   let data = null;
   for (const r of ranges) {
     try {
-      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=${r}&includePrePost=false`;
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=${interval}&range=${r}&includePrePost=false`;
       const res = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
       if (!res.ok) continue;
       const json = await res.json();
       const result = json?.chart?.result?.[0];
       if (!result) continue;
-      const closes = result.indicators?.quote?.[0]?.close || [];
-      const volumes = result.indicators?.quote?.[0]?.volume || [];
+      const q = result.indicators?.quote?.[0] || {};
+      const closes = q.close || [];
+      const volumes = q.volume || [];
+      const highs = q.high || [];
+      const lows = q.low || [];
       const timestamps = result.timestamp || [];
       if (closes.length >= 2) {
-        data = { closes, volumes, timestamps };
+        data = { closes, volumes, highs, lows, timestamps };
         break;
       }
     } catch (_) { continue; }
   }
   if (data) ANALYSIS_CACHE.set(cacheKey, { data, ts: Date.now() });
   return data;
+}
+
+function getScanTimeframe() {
+  const sel = document.getElementById('scanTimeframe');
+  return sel ? sel.value : '1d|6mo';   // 'interval|range'
 }
 
 function _emaScalar(closes, period) {
@@ -979,9 +987,17 @@ function _vwapScan(closes, volumes) {
 }
 
 async function quickAnalyzeForScan(ticker) {
-  const data = await _fetchScanData(ticker, '6mo|3mo');
+  const [tfInterval, tfRange] = getScanTimeframe().split('|');
+  const data = await _fetchScanData(ticker, tfRange === '1y' ? '1y' : '6mo|3mo', tfInterval);
   if (!data) return null;
-  const { closes, volumes } = data;
+
+  // Drop null bars keeping close/volume/high/low aligned
+  const okIdx = [];
+  (data.closes || []).forEach((c, i) => { if (c != null) okIdx.push(i); });
+  const closes  = okIdx.map(i => data.closes[i]);
+  const volumes = okIdx.map(i => (data.volumes || [])[i] || 0);
+  const highs   = okIdx.map(i => (data.highs   || [])[i] ?? data.closes[i]);
+  const lows    = okIdx.map(i => (data.lows    || [])[i] ?? data.closes[i]);
   if (closes.length < 50) return null;
 
   const price = closes[closes.length - 1];
@@ -1073,9 +1089,9 @@ async function quickAnalyzeForScan(ticker) {
     }
   }
 
-  // Relative strength vs SPY over 20 days (2 pts / −1 pt)
+  // Relative strength vs SPY over 20 bars (2 pts / −1 pt)
   try {
-    const spyData = await _fetchScanData('SPY', '3mo'); // cached after first call
+    const spyData = await _fetchScanData('SPY', tfRange === '1y' ? '1y' : '3mo', tfInterval); // cached after first call
     if (spyData?.closes?.length >= 20) {
       const sc = spyData.closes.filter(Boolean);
       const spyRet = (sc[sc.length - 1] - sc[sc.length - 20]) / sc[sc.length - 20] * 100;
@@ -1101,9 +1117,38 @@ async function quickAnalyzeForScan(ticker) {
     signals.push('Above BB upper band — short-term overextended');
   }
 
+  // ── Dual-engine agreement — the Golden Bull contract ─────────
+  // A Golden Bull is a stock where the REVERSAL engine and the
+  // CONTINUATION engine independently both read BULLISH. The weighted
+  // score above measures strength; this measures agreement. Both required.
+  let dualAgree = false;
+  try {
+    if (highs.length >= 30 && lows.length >= 30) {
+      const e20a = calcEMA(closes, 20), e50a = calcEMA(closes, 50);
+      const vol20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+      const indData = {
+        rsi:   calcRSI(closes),
+        macd:  calcMACD(closes),
+        bb:    calcBollinger(closes),
+        stoch: calcStochastic(highs, lows, closes),
+        atr:   calcATR(highs, lows, closes),
+        obv:   calcOBV(closes, volumes),
+        volRatio: vol20 > 0 ? volumes[volumes.length - 1] / vol20 : 1,
+        ema20: e20a[e20a.length - 1],
+        ema50: e50a[e50a.length - 1],
+        lastClose: price,
+      };
+      const sr   = findSupportResistance(highs, lows, closes);
+      const pa   = analyzePriceAction({ closes, highs, lows, volumes });
+      const rev  = generateAnalysis(ticker, indData, sr, pa);
+      const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
+      dualAgree = rev.bias === 'BULLISH' && cont.bias === 'BULLISH';
+    }
+  } catch (_) { dualAgree = false; }
+
   // Max possible score ≈ 18 (3+2+3+2+2+2+1+2+1)
-  // Golden Bull requires ≥10 (≥56% of max) — multiple strong signals required
-  const isGoldenBull = score >= 10;
+  // Golden Bull = strength (score ≥10) AND both engines agree bullish
+  const isGoldenBull = dualAgree && score >= 10;
   const conviction   = Math.min(100, Math.max(0, Math.round(score / 18 * 100)));
 
   return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
