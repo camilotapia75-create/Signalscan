@@ -38,6 +38,11 @@ function headerLoginClick() {
 async function initAuth() {
   const sb = getSupabase();
 
+  // Render HOF immediately — public data, no auth needed, don't wait for getSession
+  if (typeof renderHoF        === 'function') renderHoF();
+  if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
+  if (typeof renderAllHoF     === 'function') renderAllHoF();
+
   // Wrap getSession in try-catch so a network failure doesn't silently prevent
   // renderAuthState() from running — which would leave the LOGIN button with no onclick.
   try {

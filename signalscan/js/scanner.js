@@ -1488,3 +1488,12 @@ function toggleTheme() {
     }
   } catch (_) {}
 })();
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Pre-load NVDA so new visitors see the analysis tool in action
+  const input = document.getElementById('tickerInput');
+  if (input && !input.value.trim()) {
+    input.value = 'NVDA';
+    setTimeout(runAnalysis, 700);
+  }
+});
