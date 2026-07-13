@@ -218,8 +218,10 @@ header {
   background: rgba(13,17,23,0.80) !important;
   border: 1px solid rgba(155,107,255,0.18) !important;
   border-radius: 10px !important;
-  padding: 14px 16px !important;
-  margin-bottom: 12px !important;
+  padding: 12px 14px !important;
+  margin-bottom: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
   transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
 }
 .v2-sig-card:hover {
@@ -266,47 +268,118 @@ header {
 }
 .v2-sig-chart {
   width: 100% !important;
-  height: 56px !important;
-  margin-bottom: 12px !important;
+  height: 46px !important;
+  margin-bottom: 10px !important;
   border-radius: 6px !important;
   overflow: hidden !important;
   background: rgba(0,0,0,0.25) !important;
 }
+.v2-sig-name { font-size: 11px !important; }
+.v2-wt-line { margin-top: auto !important; }
 .v2-sig-chart svg { width: 100% !important; height: 100% !important; }
-.v2-sl-row {
-  margin-bottom: 8px !important;
+#v2SignalRows {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)) !important;
+  gap: 10px !important;
 }
-.v2-sl-hdr {
-  display: flex !important;
-  justify-content: space-between !important;
+.v2-sec-hdr {
+  grid-column: 1 / -1 !important;
+  font-family: 'Syne', sans-serif !important;
+  font-weight: 800 !important;
+  font-size: 11px !important;
+  letter-spacing: 2px !important;
+  color: #00ff88 !important;
+  padding: 6px 0 2px !important;
+  border-bottom: 1px solid rgba(0,255,136,0.15) !important;
+  margin-bottom: 2px !important;
+}
+.v2-sec-hdr.v2-sec-neg {
+  color: #ff3d6b !important;
+  border-bottom-color: rgba(255,61,107,0.15) !important;
+  margin-top: 10px !important;
+}
+.v2-sec-sub {
+  font-family: 'Space Mono', monospace !important;
+  font-weight: 400 !important;
+  font-size: 9px !important;
+  letter-spacing: 1px !important;
+  color: var(--muted) !important;
+  margin-left: 8px !important;
+}
+.v2-sl-line {
+  display: grid !important;
+  grid-template-columns: 52px 1fr 46px !important;
   align-items: center !important;
-  margin-bottom: 4px !important;
+  gap: 8px !important;
+  margin-bottom: 7px !important;
 }
 .v2-sl-lbl {
   font-family: 'Space Mono', monospace !important;
   font-size: 9px !important;
-  letter-spacing: 1.5px !important;
+  letter-spacing: 1px !important;
   color: var(--muted) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
 }
 .v2-sl-val {
   font-family: 'Space Mono', monospace !important;
   font-size: 11px !important;
   font-weight: 700 !important;
   color: #9b6bff !important;
+  text-align: right !important;
 }
 .v2-wt-val { color: rgba(255,204,68,0.9) !important; }
-.v2-sl-trk {
+.v2-wt-line {
+  border-top: 1px solid rgba(255,255,255,0.06) !important;
+  padding-top: 7px !important;
+  margin-bottom: 0 !important;
+}
+
+/* ── Live strategy preview ── */
+.v2-preview {
+  background: rgba(8,5,20,0.9) !important;
+  border: 1px solid rgba(155,107,255,0.28) !important;
+  border-radius: 10px !important;
+  padding: 14px 16px !important;
+  margin-bottom: 16px !important;
+}
+.v2-preview-hdr {
   display: flex !important;
+  justify-content: space-between !important;
   align-items: center !important;
-  gap: 8px !important;
+  margin-bottom: 10px !important;
+  font-family: 'Syne', sans-serif !important;
+  font-weight: 800 !important;
+  font-size: 11px !important;
+  letter-spacing: 2px !important;
+  color: #9b6bff !important;
 }
-.v2-sl-endpoint {
+.v2-prev-count {
   font-family: 'Space Mono', monospace !important;
+  font-weight: 400 !important;
   font-size: 9px !important;
+  letter-spacing: 1.5px !important;
   color: var(--muted) !important;
-  white-space: nowrap !important;
-  min-width: 18px !important;
+  border: 1px solid rgba(155,107,255,0.25) !important;
+  border-radius: 4px !important;
+  padding: 2px 8px !important;
 }
+.v2-prev-pane-lbl {
+  font-family: 'Space Mono', monospace !important;
+  font-size: 8px !important;
+  letter-spacing: 2px !important;
+  color: var(--muted) !important;
+  margin-bottom: 4px !important;
+}
+.v2-prev-svg {
+  width: 100% !important;
+  height: 150px !important;
+  display: block !important;
+  background: rgba(0,0,0,0.3) !important;
+  border-radius: 6px !important;
+}
+.v2-prev-svg-sm { height: 76px !important; }
+.v2-prev-layer { transition: opacity 0.3s ease !important; }
 .v2-range {
   flex: 1 !important;
   -webkit-appearance: none !important;

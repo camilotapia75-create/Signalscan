@@ -163,6 +163,116 @@ function _v2Pts(key, value) {
   if (badge) badge.textContent = str;
 }
 
+// ── Live strategy preview ─────────────────────────────────────────────────────
+// Two stacked panes. Each signal owns an SVG layer (id v2-prev-<key>) that
+// fades in/out as its toggle changes, so the chart always shows exactly what
+// the current strategy is looking for.
+
+function _v2PreviewHTML() {
+  return `<div id="v2PreviewPanel" class="v2-preview">
+    <div class="v2-preview-hdr">
+      <span>LIVE STRATEGY PREVIEW</span>
+      <span id="v2PrevCount" class="v2-prev-count"></span>
+    </div>
+    <div class="v2-prev-pane-lbl">PRICE</div>
+    <svg viewBox="0 0 440 160" fill="none" class="v2-prev-svg" preserveAspectRatio="none">
+      <g id="v2-prev-extension_over" class="v2-prev-layer">
+        <polyline points="0,84 110,68 220,48 330,28 440,12" stroke="#ff3d6b" stroke-width="1.2" stroke-dasharray="5,4" opacity="0.75"/>
+        <text x="6" y="80" font-size="9" fill="rgba(255,61,107,0.8)" font-family="monospace">&gt;25% over EMA50 — overextended</text>
+      </g>
+      <g id="v2-prev-extension_healthy" class="v2-prev-layer">
+        <polyline points="0,104 60,100 120,88 180,78 240,72 300,56 360,44 440,32" stroke="#00ff88" stroke-width="1.1" stroke-dasharray="5,4" opacity="0.6"/>
+        <text x="6" y="100" font-size="9" fill="rgba(0,255,136,0.7)" font-family="monospace">+15% ext ceiling — healthy below</text>
+      </g>
+      <g id="v2-prev-bb_constructive" class="v2-prev-layer">
+        <polyline points="0,100 110,84 220,64 330,44 440,26" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="3,3"/>
+        <polyline points="0,140 110,128 220,112 330,96 440,80" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="3,3"/>
+        <text x="360" y="98" font-size="9" fill="rgba(255,255,255,0.4)" font-family="monospace">BB</text>
+      </g>
+      <g id="v2-prev-bb_extended" class="v2-prev-layer">
+        <circle cx="390" cy="32" r="7" stroke="#ff3d6b" stroke-width="1.5" fill="rgba(255,61,107,0.15)"/>
+        <text x="316" y="20" font-size="9" fill="rgba(255,61,107,0.85)" font-family="monospace">above upper band</text>
+      </g>
+      <g id="v2-prev-ema_full_stack" class="v2-prev-layer">
+        <polyline points="0,128 60,122 120,106 180,94 240,88 300,68 360,56 440,44" stroke="#4d9fff" stroke-width="1.4" opacity="0.85"/>
+        <polyline points="0,134 60,130 120,118 180,108 240,102 300,86 360,74 440,62" stroke="#ff9055" stroke-width="1.4" opacity="0.8"/>
+        <text x="6" y="126" font-size="9" fill="rgba(77,159,255,0.8)" font-family="monospace">EMA21</text>
+        <text x="6" y="141" font-size="9" fill="rgba(255,144,85,0.8)" font-family="monospace">EMA50</text>
+      </g>
+      <g id="v2-prev-ema_partial" class="v2-prev-layer">
+        <polyline points="0,124 60,118 120,98 180,86 240,80 300,58 360,46 440,34" stroke="#00ff88" stroke-width="1.4" opacity="0.85"/>
+        <text x="60" y="112" font-size="9" fill="rgba(0,255,136,0.8)" font-family="monospace">EMA9</text>
+      </g>
+      <g id="v2-prev-ema200_above" class="v2-prev-layer">
+        <polyline points="0,150 110,147 220,144 330,141 440,138" stroke="#ffcc44" stroke-width="1.3" stroke-dasharray="6,4" opacity="0.7"/>
+        <text x="360" y="149" font-size="9" fill="rgba(255,204,68,0.8)" font-family="monospace">EMA200</text>
+      </g>
+      <g id="v2-prev-spy_outperform" class="v2-prev-layer">
+        <polyline points="0,118 110,112 220,108 330,104 440,100" stroke="#4d9fff" stroke-width="1.2" opacity="0.45"/>
+        <text x="200" y="118" font-size="9" fill="rgba(77,159,255,0.65)" font-family="monospace">SPY (stock above = outperforming)</text>
+      </g>
+      <g id="v2-prev-spy_underperform" class="v2-prev-layer">
+        <polyline points="0,118 110,124 220,130 330,134 440,140" stroke="#ff3d6b" stroke-width="1.2" opacity="0.55" stroke-dasharray="2,3"/>
+        <text x="230" y="152" font-size="9" fill="rgba(255,61,107,0.7)" font-family="monospace">lagging SPY</text>
+      </g>
+      <polyline points="0,120 30,112 60,116 90,100 120,92 150,98 180,80 210,72 240,78 270,60 300,52 330,58 360,42 390,34 420,38 440,30"
+        stroke="#e8edf2" stroke-width="2" opacity="0.95"/>
+    </svg>
+    <div class="v2-prev-pane-lbl" style="margin-top:8px;">MOMENTUM &amp; VOLUME</div>
+    <svg viewBox="0 0 440 80" fill="none" class="v2-prev-svg v2-prev-svg-sm" preserveAspectRatio="none">
+      <g id="v2-prev-rsi_momentum" class="v2-prev-layer">
+        <rect x="0" y="22" width="440" height="20" fill="rgba(0,255,136,0.09)"/>
+        <line x1="0" y1="22" x2="440" y2="22" stroke="rgba(0,255,136,0.4)" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="0" y1="42" x2="440" y2="42" stroke="rgba(0,255,136,0.4)" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <text x="4" y="19" font-size="9" fill="rgba(0,255,136,0.7)" font-family="monospace">RSI momentum zone</text>
+        <polyline points="0,52 40,38 80,30 120,36 160,28 200,33 240,29 280,35 320,30 360,34 400,28 440,31" stroke="#00ff88" stroke-width="1.5" opacity="0.9"/>
+      </g>
+      <g id="v2-prev-rsi_dip" class="v2-prev-layer">
+        <rect x="0" y="44" width="440" height="14" fill="rgba(77,159,255,0.10)"/>
+        <line x1="0" y1="44" x2="440" y2="44" stroke="rgba(77,159,255,0.4)" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <line x1="0" y1="58" x2="440" y2="58" stroke="rgba(77,159,255,0.4)" stroke-width="0.8" stroke-dasharray="4,3"/>
+        <text x="4" y="70" font-size="9" fill="rgba(77,159,255,0.7)" font-family="monospace">RSI dip-buy zone</text>
+      </g>
+      <g id="v2-prev-macd_positive" class="v2-prev-layer">
+        <rect x="4"   y="66" width="12" height="10" fill="rgba(0,255,136,0.4)"/>
+        <rect x="22"  y="61" width="12" height="15" fill="rgba(0,255,136,0.5)"/>
+        <rect x="40"  y="57" width="12" height="19" fill="rgba(0,255,136,0.55)"/>
+        <rect x="58"  y="60" width="12" height="16" fill="rgba(0,255,136,0.5)"/>
+        <rect x="76"  y="53" width="12" height="23" fill="rgba(0,255,136,0.6)"/>
+        <rect x="94"  y="48" width="12" height="28" fill="rgba(0,255,136,0.68)"/>
+        <rect x="112" y="44" width="12" height="32" fill="rgba(0,255,136,0.75)"/>
+        <text x="130" y="74" font-size="9" fill="rgba(0,255,136,0.7)" font-family="monospace">MACD+</text>
+      </g>
+      <g id="v2-prev-volume_expanding" class="v2-prev-layer">
+        <rect x="250" y="66" width="14" height="10" fill="rgba(155,107,255,0.35)"/>
+        <rect x="270" y="63" width="14" height="13" fill="rgba(155,107,255,0.35)"/>
+        <rect x="290" y="65" width="14" height="11" fill="rgba(155,107,255,0.35)"/>
+        <rect x="310" y="62" width="14" height="14" fill="rgba(155,107,255,0.35)"/>
+        <rect x="330" y="64" width="14" height="12" fill="rgba(155,107,255,0.35)"/>
+        <rect x="350" y="42" width="14" height="34" fill="rgba(155,107,255,0.8)"/>
+        <text x="370" y="52" font-size="9" fill="rgba(155,107,255,0.85)" font-family="monospace">vol ↑</text>
+      </g>
+      <g id="v2-prev-obv_rising" class="v2-prev-layer">
+        <polyline points="180,72 230,66 280,58 330,48 380,38 440,24" stroke="#4d9fff" stroke-width="1.5" opacity="0.85"/>
+        <text x="182" y="62" font-size="9" fill="rgba(77,159,255,0.8)" font-family="monospace">OBV</text>
+      </g>
+    </svg>
+  </div>`;
+}
+
+function _v2PrevSync() {
+  let n = 0;
+  V2_SIGNAL_DEFS.forEach(def => {
+    const chk   = document.querySelector(`input[type="checkbox"][data-sig-key="${def.key}"]`);
+    const layer = document.getElementById(`v2-prev-${def.key}`);
+    const on = chk ? chk.checked : false;
+    if (on) n++;
+    if (layer) layer.style.opacity = on ? '1' : '0';
+  });
+  const cnt = document.getElementById('v2PrevCount');
+  if (cnt) cnt.textContent = `${n} SIGNAL${n === 1 ? '' : 'S'} ACTIVE`;
+}
+
 // ── Builder UI ────────────────────────────────────────────────────────────────
 
 function initV2Builder() {
@@ -170,7 +280,10 @@ function initV2Builder() {
   if (!container || container.dataset.built) return;
   container.dataset.built = '1';
 
-  container.innerHTML = V2_SIGNAL_DEFS.map(def => {
+  document.getElementById('v2PreviewPanel')?.remove();
+  container.insertAdjacentHTML('beforebegin', _v2PreviewHTML());
+
+  const card = def => {
     const isNeg = def.points < 0;
     const ptsStr = (def.points > 0 ? '+' : '') + def.points + ' pts';
     const chart = V2_CHARTS[def.key] || '';
@@ -178,19 +291,13 @@ function initV2Builder() {
     const paramSliders = def.params.map(p => {
       const isFloat = p.step < 1;
       const dispVal = isFloat ? p.default.toFixed(2) : p.default;
-      return `<div class="v2-sl-row">
-        <div class="v2-sl-hdr">
-          <span class="v2-sl-lbl">${p.label.toUpperCase()}</span>
-          <span class="v2-sl-val" id="v2-val-${def.key}-${p.id}">${dispVal}</span>
-        </div>
-        <div class="v2-sl-trk">
-          <span class="v2-sl-endpoint">${p.min}</span>
-          <input type="range" class="v2-range"
-            data-key="${def.key}" data-param="${p.id}"
-            value="${p.default}" min="${p.min}" max="${p.max}" step="${p.step}"
-            oninput="_v2Disp('${def.key}','${p.id}',this.value,${isFloat});_v2Fill(this)">
-          <span class="v2-sl-endpoint">${p.max}</span>
-        </div>
+      return `<div class="v2-sl-line">
+        <span class="v2-sl-lbl">${p.label.toUpperCase()}</span>
+        <input type="range" class="v2-range"
+          data-key="${def.key}" data-param="${p.id}"
+          value="${p.default}" min="${p.min}" max="${p.max}" step="${p.step}"
+          oninput="_v2Disp('${def.key}','${p.id}',this.value,${isFloat});_v2Fill(this)">
+        <span class="v2-sl-val" id="v2-val-${def.key}-${p.id}">${dispVal}</span>
       </div>`;
     }).join('');
 
@@ -198,7 +305,7 @@ function initV2Builder() {
     return `<div class="v2-sig-card${isNeg ? ' v2-sig-neg-card' : ''}">
       <div class="v2-sig-hdr">
         <label class="v2-toggle">
-          <input type="checkbox" data-sig-key="${def.key}" ${def.points > 0 ? 'checked' : ''}>
+          <input type="checkbox" data-sig-key="${def.key}" ${def.points > 0 ? 'checked' : ''} onchange="_v2PrevSync()">
           <span class="v2-toggle-track"></span>
         </label>
         <span class="v2-sig-name${isNeg ? ' v2-sig-neg-name' : ''}">${def.label}</span>
@@ -206,24 +313,27 @@ function initV2Builder() {
       </div>
       <div class="v2-sig-chart">${chart}</div>
       ${paramSliders}
-      <div class="v2-sl-row v2-wt-row">
-        <div class="v2-sl-hdr">
-          <span class="v2-sl-lbl">WEIGHT</span>
-          <span class="v2-sl-val v2-wt-val" id="v2-pts-val-${def.key}">${ptsStr}</span>
-        </div>
-        <div class="v2-sl-trk">
-          <span class="v2-sl-endpoint">${ptsMin}</span>
-          <input type="range" class="v2-range v2-range-pts"
-            data-pts-for="${def.key}"
-            value="${def.points}" min="${ptsMin}" max="${ptsMax}" step="0.5"
-            oninput="_v2Pts('${def.key}',this.value);_v2Fill(this)">
-          <span class="v2-sl-endpoint">+${ptsMax}</span>
-        </div>
+      <div class="v2-sl-line v2-wt-line">
+        <span class="v2-sl-lbl">WEIGHT</span>
+        <input type="range" class="v2-range v2-range-pts"
+          data-pts-for="${def.key}"
+          value="${def.points}" min="${ptsMin}" max="${ptsMax}" step="0.5"
+          oninput="_v2Pts('${def.key}',this.value);_v2Fill(this)">
+        <span class="v2-sl-val v2-wt-val" id="v2-pts-val-${def.key}">${ptsStr}</span>
       </div>
     </div>`;
-  }).join('');
+  };
+
+  const pos = V2_SIGNAL_DEFS.filter(d => d.points > 0);
+  const neg = V2_SIGNAL_DEFS.filter(d => d.points < 0);
+  container.innerHTML =
+    `<div class="v2-sec-hdr">✚ SCORE BUILDERS <span class="v2-sec-sub">add points when true</span></div>` +
+    pos.map(card).join('') +
+    `<div class="v2-sec-hdr v2-sec-neg">⚠ RISK FLAGS <span class="v2-sec-sub">subtract points when true</span></div>` +
+    neg.map(card).join('');
 
   container.querySelectorAll('.v2-range').forEach(_v2Fill);
+  _v2PrevSync();
   loadCommunityAlgos();
 }
 
@@ -286,6 +396,7 @@ function loadConfigIntoBuilder(config) {
       }
     }
   }
+  _v2PrevSync();
 }
 
 function resetV2Builder() {
@@ -324,10 +435,10 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
   const ema21  = _emaScalar(closes, 21);
   const ema50  = _emaScalar(closes, 50);
   const ema200 = _emaScalar(closes, 200);
-  const rsi    = calcRSI(closes);
-  const macd   = calcMACD(closes);
-  const bb     = calcBB(closes);
-  const obv    = calcOBV(closes, volumes);
+  const rsi    = _rsiScan(closes);
+  const macd   = _macdScan(closes);
+  const bb     = _bbScan(closes);
+  const obv    = _obvScan(closes, volumes);
 
   if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return null;
 

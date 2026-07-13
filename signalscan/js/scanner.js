@@ -919,7 +919,7 @@ function _emaScalar(closes, period) {
   return ema;
 }
 
-function calcRSI(closes, period = 14) {
+function _rsiScan(closes, period = 14) {
   if (closes.length < period + 1) return null;
   let gains = 0, losses = 0;
   for (let i = 1; i <= period; i++) {
@@ -936,14 +936,14 @@ function calcRSI(closes, period = 14) {
   return 100 - 100 / (1 + avgGain / avgLoss);
 }
 
-function calcMACD(closes) {
+function _macdScan(closes) {
   const ema12 = _emaScalar(closes, 12);
   const ema26 = _emaScalar(closes, 26);
   if (ema12 == null || ema26 == null) return null;
   return ema12 - ema26;
 }
 
-function calcBB(closes, period = 20) {
+function _bbScan(closes, period = 20) {
   if (closes.length < period) return null;
   const slice = closes.slice(-period);
   const mean  = slice.reduce((a, b) => a + b, 0) / period;
@@ -951,14 +951,14 @@ function calcBB(closes, period = 20) {
   return { upper: mean + 2 * std, lower: mean - 2 * std, mean };
 }
 
-function calcATR(closes, period = 14) {
+function _atrScan(closes, period = 14) {
   if (closes.length < period + 1) return null;
   const trs = [];
   for (let i = 1; i < closes.length; i++) trs.push(Math.abs(closes[i] - closes[i - 1]));
   return trs.slice(-period).reduce((a, b) => a + b, 0) / period;
 }
 
-function calcOBV(closes, volumes) {
+function _obvScan(closes, volumes) {
   let obv = 0;
   const obvArr = [0];
   for (let i = 1; i < closes.length; i++) {
@@ -969,7 +969,7 @@ function calcOBV(closes, volumes) {
   return obvArr;
 }
 
-function calcVWAP(closes, volumes) {
+function _vwapScan(closes, volumes) {
   let cumPV = 0, cumV = 0;
   for (let i = 0; i < closes.length; i++) {
     cumPV += closes[i] * (volumes[i] || 0);
@@ -991,10 +991,10 @@ async function quickAnalyzeForScan(ticker) {
   const ema21  = _emaScalar(closes, 21);
   const ema50  = _emaScalar(closes, 50);
   const ema200 = _emaScalar(closes, 200);
-  const rsi    = calcRSI(closes);
-  const macd   = calcMACD(closes);
-  const bb     = calcBB(closes);
-  const obv    = calcOBV(closes, volumes);
+  const rsi    = _rsiScan(closes);
+  const macd   = _macdScan(closes);
+  const bb     = _bbScan(closes);
+  const obv    = _obvScan(closes, volumes);
 
   if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return null;
 
@@ -1122,10 +1122,10 @@ async function quickAnalyzeForScanV2(ticker) {
   const ema21  = _emaScalar(closes, 21);
   const ema50  = _emaScalar(closes, 50);
   const ema200 = _emaScalar(closes, 200);
-  const rsi    = calcRSI(closes);
-  const macd   = calcMACD(closes);
-  const bb     = calcBB(closes);
-  const obv    = calcOBV(closes, volumes);
+  const rsi    = _rsiScan(closes);
+  const macd   = _macdScan(closes);
+  const bb     = _bbScan(closes);
+  const obv    = _obvScan(closes, volumes);
 
   if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return null;
 
@@ -1264,12 +1264,12 @@ async function runAnalysis() {
     const ema21   = _emaScalar(closes, 21);
     const ema50   = _emaScalar(closes, 50);
     const ema200  = _emaScalar(closes, 200);
-    const rsi     = calcRSI(closes);
-    const macd    = calcMACD(closes);
-    const bb      = calcBB(closes);
-    const atr     = calcATR(closes);
-    const obv     = calcOBV(closes, volumes);
-    const vwap    = calcVWAP(closes, volumes);
+    const rsi     = _rsiScan(closes);
+    const macd    = _macdScan(closes);
+    const bb      = _bbScan(closes);
+    const atr     = _atrScan(closes);
+    const obv     = _obvScan(closes, volumes);
+    const vwap    = _vwapScan(closes, volumes);
 
     const signals = [];
     if (ema9 && ema21 && ema9 > ema21)                       signals.push({ text: 'EMA 9 crossed above EMA 21 — short-term bullish momentum', strength: 'strong' });
