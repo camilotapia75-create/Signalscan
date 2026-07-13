@@ -130,13 +130,47 @@ async function _runScanCore(tickers, ui, quickFn, recordFn, renderFn) {
   }
 }
 
+function switchScanTab(tab) {
+  const tabs   = ['original', 'bullpen', 'v2'];
+  const panels = { original: 'scanPanelOriginal', bullpen: 'scanPanelBullpen', v2: 'scanPanelV2' };
+  const tabBtns = { original: 'scanTabOriginal', bullpen: 'scanTabBullpen', v2: 'scanTabV2' };
+
+  tabs.forEach(t => {
+    const panel = document.getElementById(panels[t]);
+    const btn   = document.getElementById(tabBtns[t]);
+    if (panel) panel.style.display = t === tab ? 'block' : 'none';
+    if (btn) {
+      if (t === tab) {
+        if (t === 'v2') {
+          btn.style.background = '#9b6bff'; btn.style.color = '#fff';
+        } else if (t === 'bullpen') {
+          btn.style.background = 'rgba(255,140,80,0.8)'; btn.style.color = '#000';
+        } else {
+          btn.style.background = 'var(--gold)'; btn.style.color = '#000';
+        }
+      } else {
+        btn.style.background = 'transparent'; btn.style.color = 'var(--muted)';
+      }
+    }
+  });
+
+  const scanBtn   = document.getElementById('scanBtn');
+  const bpScanBtn = document.getElementById('bpScanBtn');
+  const v2ScanBtn = document.getElementById('v2RunBtn');
+  if (scanBtn)   scanBtn.style.display   = tab === 'original' ? 'inline-block' : 'none';
+  if (bpScanBtn) bpScanBtn.style.display = tab === 'bullpen'  ? 'inline-block' : 'none';
+  if (v2ScanBtn) v2ScanBtn.style.display = tab === 'v2'       ? 'inline-block' : 'none';
+
+  if (tab === 'v2' && typeof initV2Builder === 'function') initV2Builder();
+}
+
 function runScanner() {
   const daily   = getDailyRotation(ROTATION_POOL, 20);
   const tickers = [...new Set([...SCAN_UNIVERSE_CORE, ...daily])];
   return _runScanCore(tickers, {
-    btnId: 'scanBtn',              progressId: 'scanProgress',     gridId: 'scanGrid',
-    emptyId: 'scanEmpty',          headerId: 'scanHeader',          foundMsgId: 'scanFoundMsg',
-    statusId: 'scanStatusText',    countId: 'scanProgressCount',    barId: 'scanProgressBar',
+    btnId: 'scanBtn',              progressId: 'scanProgress',     gridId: 'scanResultsGrid',
+    emptyId: 'scanEmpty',          headerId: 'scanResultsHeader',  foundMsgId: 'scanFoundMsg',
+    statusId: 'scanStatusText',    countId: 'scanProgressCount',   barId: 'scanProgressBar',
     btnLabel: '🔍 SCAN AGAIN',
   });
 }
@@ -1354,9 +1388,9 @@ function runBullPenScanner() {
   const daily   = getDailyRotation(ROTATION_POOL, 20);
   const tickers = [...new Set([...SCAN_UNIVERSE_CORE, ...daily])];
   return _runScanCore(tickers, {
-    btnId: 'bpScanBtn',              progressId: 'bpScanProgress',     gridId: 'bpScanGrid',
-    emptyId: 'bpScanEmpty',          headerId: 'bpScanHeader',          foundMsgId: 'bpScanFoundMsg',
-    statusId: 'bpScanStatusText',    countId: 'bpScanProgressCount',    barId: 'bpScanProgressBar',
+    btnId: 'bpScanBtn',              progressId: 'bpProgress',          gridId: 'bpResultsGrid',
+    emptyId: 'bpEmpty',              headerId: 'bpResultsHeader',        foundMsgId: 'bpFoundMsg',
+    statusId: 'bpStatusText',        countId: 'bpProgressCount',         barId: 'bpProgressBar',
     btnLabel: '🔍 SCAN AGAIN',
   }, quickAnalyzeForScanV2, hofRecordBullPen, renderBullPenHoF);
 }

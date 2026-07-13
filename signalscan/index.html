@@ -166,6 +166,7 @@
         <div style="display:flex;gap:0;border:1px solid var(--border);">
           <button id="scanTabOriginal" onclick="switchScanTab('original')" style="background:var(--gold);color:#000;border:none;font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🐂 ORIGINAL</button>
           <button id="scanTabBullpen"  onclick="switchScanTab('bullpen')"  style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">🧪 BULL PEN</button>
+          <button id="scanTabV2"       onclick="switchScanTab('v2')"       style="background:transparent;color:var(--muted);border:none;border-left:1px solid var(--border);font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:1.5px;padding:9px 16px;cursor:pointer;">⚗️ ALGO LAB</button>
         </div>
         <select id="scanTimeframe" style="background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 14px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:1px;cursor:pointer;outline:none;">
           <option value="1wk|1y">1Y WEEKLY</option>
@@ -173,6 +174,7 @@
         </select>
         <button class="scan-btn" id="scanBtn" onclick="runScanner()">🔍 SCAN MARKET</button>
         <button class="scan-btn" id="bpScanBtn" onclick="runBullPenScanner()" style="display:none;background:rgba(255,140,80,0.12);border:1px solid rgba(255,140,80,0.4);color:#ff9055;">🧪 SCAN BULL PEN</button>
+        <button class="scan-btn" id="v2RunBtn" onclick="runV2Scan()" style="display:none;background:rgba(155,107,255,0.12);border:1px solid rgba(155,107,255,0.4);color:#9b6bff;">▶ RUN SCAN</button>
       </div>
     </div>
 
@@ -206,6 +208,82 @@
       <div id="bpEmpty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
         <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">🧪</div>
         <div style="font-size:12px;color:var(--muted);line-height:1.8;">No Bull Pen signals detected in current conditions.</div>
+      </div>
+    </div>
+
+    <!-- ⚗️ ALGO LAB panel -->
+    <div id="scanPanelV2" style="display:none;">
+      <div style="background:rgba(155,107,255,0.06);border:1px solid rgba(155,107,255,0.22);padding:11px 16px;margin-bottom:24px;font-size:10px;color:rgba(185,150,255,0.9);letter-spacing:0.8px;line-height:1.8;">
+        ⚗️ BUILD YOUR OWN ALGORITHM — Toggle signals on/off, tune point values and parameters, set gates, then run a full scan or save and share with the community.
+      </div>
+
+      <div class="v2-layout">
+        <!-- Builder column -->
+        <div class="v2-builder">
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:2px;color:var(--muted);margin-bottom:14px;">ALGORITHM BUILDER</div>
+
+          <!-- Gates -->
+          <div style="background:var(--surface);border:1px solid var(--border);padding:14px 16px;margin-bottom:14px;">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;margin-bottom:12px;">HARD GATES (INSTANT DISQUALIFY)</div>
+            <div class="v2-gate-row">
+              <label style="font-size:10px;color:var(--muted);letter-spacing:1px;display:flex;align-items:center;gap:6px;">
+                MIN PRICE $<input id="v2GateMinPrice" class="v2-param-input" type="number" value="2" min="0" max="500" step="0.5" style="width:58px;">
+              </label>
+              <label style="font-size:10px;color:var(--muted);letter-spacing:1px;display:flex;align-items:center;gap:6px;">
+                MAX RSI <input id="v2GateMaxRSI" class="v2-param-input" type="number" value="76" min="50" max="100" step="1" style="width:50px;">
+              </label>
+            </div>
+            <div class="v2-gate-row" style="margin-top:10px;">
+              <label class="v2-checkbox-label"><input id="v2GateAboveEMA50" type="checkbox" checked> Above EMA50</label>
+              <label class="v2-checkbox-label"><input id="v2GateEMA50Slope" type="checkbox" checked> EMA50 rising slope</label>
+            </div>
+          </div>
+
+          <!-- Score threshold -->
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;font-size:10px;color:var(--muted);letter-spacing:1px;">
+            SCORE THRESHOLD
+            <input id="v2ScoreThreshold" class="v2-param-input" type="number" value="10" min="1" max="30" step="0.5" style="width:56px;">
+            pts to qualify
+          </div>
+
+          <!-- Signal rows (dynamically rendered) -->
+          <div style="font-size:10px;color:var(--muted);letter-spacing:1.5px;margin-bottom:10px;">SIGNALS</div>
+          <div id="v2SignalRows"></div>
+
+          <!-- Name / desc / actions -->
+          <div id="v2LoadedNotice" style="display:none;background:rgba(155,107,255,0.12);border:1px solid rgba(155,107,255,0.3);padding:8px 12px;font-size:10px;color:#9b6bff;letter-spacing:1px;margin-top:16px;">ALGO LOADED INTO BUILDER</div>
+          <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;">
+            <input id="v2AlgoName" class="ticker-input" type="text" placeholder="Algorithm name..." maxlength="60" style="font-size:13px;letter-spacing:0.5px;text-transform:none;">
+            <textarea id="v2AlgoDesc" placeholder="Optional description..." maxlength="200" style="background:var(--surface);border:1px solid var(--border);color:var(--text);font-family:'Space Mono',monospace;font-size:11px;padding:10px 12px;resize:vertical;min-height:56px;outline:none;transition:border-color 0.2s;" onfocus="this.style.borderColor='#9b6bff'" onblur="this.style.borderColor='var(--border)'"></textarea>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="v2-btn-primary" onclick="saveAndShareAlgo()">💾 SAVE &amp; SHARE</button>
+              <button class="v2-btn-secondary" onclick="resetV2Builder()">RESET</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Community column -->
+        <div class="v2-community">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:2px;color:var(--muted);">COMMUNITY ALGOS</div>
+            <button class="v2-btn-ghost" onclick="loadCommunityAlgos()" style="font-size:9px;">↺ REFRESH</button>
+          </div>
+          <div id="v2CommunityList" style="display:flex;flex-direction:column;gap:10px;max-height:600px;overflow-y:auto;padding-right:4px;"></div>
+        </div>
+      </div>
+
+      <!-- V2 scan results -->
+      <div style="margin-top:28px;">
+        <div id="v2ScanProgress" style="display:none;margin-bottom:20px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="v2StatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="v2ProgressCount">0 / 0</span></div>
+          <div class="scan-progress-bg"><div class="scan-progress-fill" id="v2ProgressBar" style="background:linear-gradient(90deg,#7b4dcc,#9b6bff);"></div></div>
+        </div>
+        <div id="v2ResultsHeader" style="display:none;font-size:11px;color:var(--muted);letter-spacing:1px;margin-bottom:14px;"></div>
+        <div id="v2ResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+        <div id="v2Empty" style="display:none;background:var(--surface);border:1px solid var(--border);padding:40px;text-align:center;">
+          <div style="font-size:40px;opacity:0.25;margin-bottom:14px;">⚗️</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.8;">No signals matched your algorithm. Try lowering the score threshold or enabling more signals.</div>
+        </div>
       </div>
     </div>
   </div>
@@ -362,7 +440,8 @@
 <script src="js/config.js?v=31"></script>
 <script src="js/calc.js?v=31"></script>
 <script src="js/analysis.js?v=31"></script>
-<script src="js/scanner.js?v=34"></script>
+<script src="js/scanner.js?v=35"></script>
+<script src="js/algo-builder.js?v=1"></script>
 <script src="js/app.js?v=31"></script>
 <script src="js/auth.js?v=31"></script>
 <script src="js/watchlist.js?v=31"></script>
