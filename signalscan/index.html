@@ -11,8 +11,144 @@
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="css/styles.css?v=3">
+<style>
+/* ── ALGO LAB tab shimmer — inline so it's never stale-cached ── */
+@keyframes algoTabSweep {
+  0%   { background-position: 250% center; }
+  100% { background-position: -50% center; }
+}
+#appTabAlgoLab:not(.algo-tab-active) {
+  background-image: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(155,107,255,0.18) 47%,
+    rgba(210,180,255,0.40) 50%,
+    rgba(155,107,255,0.18) 53%,
+    transparent 70%
+  ) !important;
+  background-size: 300% 100% !important;
+  animation: algoTabSweep 2.6s ease-in-out infinite !important;
+}
+#appTabAlgoLab.algo-tab-active {
+  animation: none !important;
+  background-image: none !important;
+}
+
+/* ── Ambient glow blobs ── */
+@keyframes blobFloat {
+  0%,100% { transform: scale(1) translate(0,0); }
+  50%      { transform: scale(1.06) translate(12px,-10px); }
+}
+#ambientBlob1,#ambientBlob2 {
+  position: fixed; pointer-events: none; z-index: 0; border-radius: 50%;
+}
+#ambientBlob1 {
+  top: -80px; right: -120px;
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(155,107,255,0.07) 0%, transparent 65%);
+  animation: blobFloat 9s ease-in-out infinite;
+}
+#ambientBlob2 {
+  bottom: -60px; left: -100px;
+  width: 480px; height: 480px;
+  background: radial-gradient(circle, rgba(0,255,136,0.04) 0%, transparent 65%);
+  animation: blobFloat 12s ease-in-out infinite reverse;
+}
+
+/* ── Glass panels ── */
+.panel {
+  background: rgba(13,17,23,0.78) !important;
+  border: 1px solid rgba(255,255,255,0.07) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+}
+.panel:hover {
+  border-color: rgba(255,255,255,0.12) !important;
+}
+
+/* ── Card hover lift ── */
+.scan-card {
+  transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1),
+              box-shadow 0.25s ease,
+              border-color 0.25s ease !important;
+}
+.scan-card:hover {
+  transform: translateY(-5px) !important;
+  box-shadow: 0 14px 36px rgba(0,0,0,0.55),
+              0 0 0 1px rgba(0,255,136,0.25) !important;
+}
+
+/* ── V2 scan result card hover ── */
+.v2-scan-card:hover {
+  transform: translateY(-5px) !important;
+  box-shadow: 0 14px 36px rgba(155,107,255,0.18),
+              0 0 0 1px rgba(155,107,255,0.35) !important;
+}
+
+/* ── V2 builder panel glass ── */
+.v2-builder {
+  background: rgba(13,17,23,0.82) !important;
+  border: 1px solid rgba(155,107,255,0.18) !important;
+  backdrop-filter: blur(14px) !important;
+  -webkit-backdrop-filter: blur(14px) !important;
+}
+
+/* ── Scan terminal ── */
+@keyframes scanBeamSlide {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(360%);  }
+}
+@keyframes cursorBlink {
+  0%,100% { opacity:1; } 50% { opacity:0; }
+}
+.v2-scan-terminal {
+  background: linear-gradient(135deg,rgba(8,5,20,0.99),rgba(14,8,28,0.99)) !important;
+  border: 1px solid rgba(155,107,255,0.55) !important;
+  box-shadow: 0 0 0 1px rgba(155,107,255,0.08),
+              inset 0 0 48px rgba(155,107,255,0.07),
+              0 20px 56px rgba(0,0,0,0.7) !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+.v2-scan-terminal::before {
+  content: '';
+  position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg,transparent,rgba(155,107,255,0.9),transparent);
+}
+.v2-scan-beam {
+  animation: scanBeamSlide 1.8s cubic-bezier(0.4,0,0.6,1) infinite !important;
+  background: linear-gradient(90deg,transparent,rgba(155,107,255,0.12),rgba(200,170,255,0.06),transparent) !important;
+}
+.v2-blink { animation: cursorBlink 0.85s step-end infinite !important; }
+.v2-scan-bar-bg {
+  background: rgba(155,107,255,0.1) !important;
+  border: 1px solid rgba(155,107,255,0.22) !important;
+  border-radius: 4px !important;
+  height: 5px !important;
+  overflow: hidden;
+}
+.v2-scan-bar-fill {
+  background: linear-gradient(90deg,#5a35b8,#9b6bff,#d4b8ff) !important;
+  box-shadow: 0 0 14px rgba(155,107,255,0.85), 0 0 30px rgba(155,107,255,0.4) !important;
+  border-radius: 4px !important;
+  height: 100% !important;
+  transition: width 0.3s ease !important;
+}
+
+/* ── Button hover shimmer (analyze & primary) ── */
+.analyze-btn, .v2-btn-primary { overflow: hidden; position: relative; }
+.analyze-btn:hover, .v2-btn-primary:hover {
+  box-shadow: 0 0 22px rgba(0,255,136,0.35) !important;
+  transform: translateY(-2px) !important;
+}
+.v2-btn-primary:hover {
+  box-shadow: 0 0 22px rgba(155,107,255,0.5) !important;
+}
+</style>
 </head>
 <body>
+<div id="ambientBlob1"></div>
+<div id="ambientBlob2"></div>
 <header>
   <div class="logo">SIGNAL<span>SCAN</span></div>
   <div style="font-size:10px;color:var(--muted);letter-spacing:2px;">FREE TECHNICAL ANALYSIS</div>
@@ -93,7 +229,7 @@
 <main>
   <!-- ── Primary app navigation ─────────────────────────────── -->
   <div id="appNav" style="display:flex;border-bottom:2px solid var(--border);margin:-20px -20px 28px;padding:0 20px;">
-    <button id="appTabAlgoLab" onclick="switchAppTab('algolab')" style="background:transparent;color:var(--muted);border:none;border-bottom:2px solid transparent;margin-bottom:-2px;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;padding:16px 28px;cursor:pointer;transition:color 0.2s,border-color 0.2s;">⚗️ ALGO LAB</button>
+    <button id="appTabAlgoLab" onclick="switchAppTab('algolab')" style="color:var(--muted);border:none;border-bottom:2px solid transparent;margin-bottom:-2px;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;padding:16px 28px;cursor:pointer;transition:color 0.2s,border-color 0.2s;">⚗️ ALGO LAB</button>
     <button id="appTabAnalyze" onclick="switchAppTab('analyze')" style="background:transparent;color:var(--accent);border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;padding:16px 28px;cursor:pointer;transition:all 0.2s;">📈 ANALYZE</button>
   </div>
 
