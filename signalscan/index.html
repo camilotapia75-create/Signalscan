@@ -270,68 +270,6 @@
     </div>
   </div>
 
-  <!-- ── Hall of Fame ────────────────────────────── -->
-  <div id="hofSection" style="display:none;padding:32px;border-top:1px solid var(--border);">
-    <div id="hofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;">🏆 GOLDEN BULL HALL OF FAME</div>
-    <div id="hofSubtitle" style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:20px;">ALL-TIME · <span id="hofTotalCount">0</span> TOTAL SIGNALS DETECTED</div>
-    <div style="overflow-x:auto;">
-      <table style="width:100%;font-size:11px;border-collapse:collapse;">
-        <thead>
-          <tr style="border-bottom:1px solid var(--border);">
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
-            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
-            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">ALL-TIME %</th>
-          </tr>
-        </thead>
-        <tbody id="hofTbody"></tbody>
-      </table>
-    </div>
-    <button id="hofReturnBtn" onclick="loadHofReturns()" style="margin-top:14px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">LOAD RETURNS</button>
-  </div>
-
-  <!-- ── Bull Pen Hall of Fame ─────────────────────── -->
-  <div id="bpHofSection" style="display:none;padding:32px;border-top:1px solid rgba(255,140,80,0.3);">
-    <div id="bpHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#ff9055;">🧪 BULL PEN HALL OF FAME</div>
-    <div id="bpHofSubtitle" style="font-size:10px;color:rgba(255,150,80,0.7);letter-spacing:1px;margin-bottom:20px;">EXPERIMENTAL FORMULA · <span id="bpHofCount">0</span> SIGNALS DETECTED</div>
-    <div style="overflow-x:auto;">
-      <table style="width:100%;font-size:11px;border-collapse:collapse;">
-        <thead>
-          <tr style="border-bottom:1px solid rgba(255,140,80,0.25);">
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
-            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
-            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">ALL-TIME %</th>
-          </tr>
-        </thead>
-        <tbody id="bpHofTbody"></tbody>
-      </table>
-    </div>
-    <button id="bpHofReturnBtn" onclick="loadBullPenReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(255,140,80,0.3);color:rgba(255,150,80,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#ff9055';this.style.color='#ff9055'" onmouseout="this.style.borderColor='rgba(255,140,80,0.3)';this.style.color='rgba(255,150,80,0.6)'">LOAD RETURNS</button>
-  </div>
-
-  <!-- ── Combined HoF (Scanner + Watchlist) ─────────────────────────── -->
-  <div id="allHofSection" style="display:none;padding:32px;border-top:1px solid rgba(77,159,255,0.3);">
-    <div id="allHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#4d9fff;">⚡ COMBINED HOF — SCANNER + WATCHLIST</div>
-    <div id="allHofSubtitle" style="font-size:10px;color:rgba(77,159,255,0.7);letter-spacing:1px;margin-bottom:20px;">ALL-TIME · 0 TICKERS</div>
-    <div style="overflow-x:auto;">
-      <table style="width:100%;font-size:11px;border-collapse:collapse;">
-        <thead>
-          <tr style="border-bottom:1px solid rgba(77,159,255,0.25);">
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
-            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
-            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
-            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">ALL-TIME %</th>
-          </tr>
-        </thead>
-        <tbody id="allHofTbody"></tbody>
-      </table>
-    </div>
-    <button id="allHofReturnBtn" onclick="loadAllHofReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(77,159,255,0.3);color:rgba(77,159,255,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#4d9fff';this.style.color='#4d9fff'" onmouseout="this.style.borderColor='rgba(77,159,255,0.3)';this.style.color='rgba(77,159,255,0.6)'">LOAD RETURNS</button>
-  </div>
   </div><!-- /appSectionAnalyze -->
 
   <!-- ── ⚗️ ALGO LAB — top-level section ───────────────────────── -->
@@ -424,6 +362,69 @@
       </div>
     </div>
   </div><!-- /appSectionAlgoLab -->
+
+  <!-- ── Hall of Fame — always visible below tabs ──────────────────────── -->
+  <div id="hofSection" style="display:none;padding:32px;border-top:1px solid var(--border);">
+    <div id="hofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;">🏆 GOLDEN BULL HALL OF FAME</div>
+    <div id="hofSubtitle" style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:20px;">ALL-TIME · <span id="hofTotalCount">0</span> TOTAL SIGNALS DETECTED</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);">
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
+            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">ALL-TIME %</th>
+          </tr>
+        </thead>
+        <tbody id="hofTbody"></tbody>
+      </table>
+    </div>
+    <button id="hofReturnBtn" onclick="loadHofReturns()" style="margin-top:14px;background:transparent;border:1px solid var(--border);color:var(--muted);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">LOAD RETURNS</button>
+  </div>
+
+  <!-- ── Bull Pen Hall of Fame ─────────────────────── -->
+  <div id="bpHofSection" style="display:none;padding:32px;border-top:1px solid rgba(255,140,80,0.3);">
+    <div id="bpHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#ff9055;">🧪 BULL PEN HALL OF FAME</div>
+    <div id="bpHofSubtitle" style="font-size:10px;color:rgba(255,150,80,0.7);letter-spacing:1px;margin-bottom:20px;">EXPERIMENTAL FORMULA · <span id="bpHofCount">0</span> SIGNALS DETECTED</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid rgba(255,140,80,0.25);">
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
+            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">ALL-TIME %</th>
+          </tr>
+        </thead>
+        <tbody id="bpHofTbody"></tbody>
+      </table>
+    </div>
+    <button id="bpHofReturnBtn" onclick="loadBullPenReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(255,140,80,0.3);color:rgba(255,150,80,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#ff9055';this.style.color='#ff9055'" onmouseout="this.style.borderColor='rgba(255,140,80,0.3)';this.style.color='rgba(255,150,80,0.6)'">LOAD RETURNS</button>
+  </div>
+
+  <!-- ── Combined HoF (Scanner + Watchlist) ─────────────────────────── -->
+  <div id="allHofSection" style="display:none;padding:32px;border-top:1px solid rgba(77,159,255,0.3);">
+    <div id="allHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#4d9fff;">⚡ COMBINED HOF — SCANNER + WATCHLIST</div>
+    <div id="allHofSubtitle" style="font-size:10px;color:rgba(77,159,255,0.7);letter-spacing:1px;margin-bottom:20px;">ALL-TIME · 0 TICKERS</div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;font-size:11px;border-collapse:collapse;">
+        <thead>
+          <tr style="border-bottom:1px solid rgba(77,159,255,0.25);">
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">TICKER</th>
+            <th class="hof-col-det" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">DETECTED</th>
+            <th class="hof-col-price" style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">SIGNAL PRICE</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">CONVICTION</th>
+            <th style="text-align:left;color:var(--muted);padding:6px 8px;font-weight:400;letter-spacing:1px;">ALL-TIME %</th>
+          </tr>
+        </thead>
+        <tbody id="allHofTbody"></tbody>
+      </table>
+    </div>
+    <button id="allHofReturnBtn" onclick="loadAllHofReturns()" style="display:none;margin-top:14px;background:transparent;border:1px solid rgba(77,159,255,0.3);color:rgba(77,159,255,0.6);font-family:'Space Mono',monospace;font-size:10px;padding:8px 16px;cursor:pointer;letter-spacing:1px;transition:all 0.2s;" onmouseover="this.style.borderColor='#4d9fff';this.style.color='#4d9fff'" onmouseout="this.style.borderColor='rgba(77,159,255,0.3)';this.style.color='rgba(77,159,255,0.6)'">LOAD RETURNS</button>
+  </div>
 
 </main>
 
