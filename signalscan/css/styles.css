@@ -243,3 +243,68 @@ body.light-mode .panel { box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
   #v2CommunityList { max-height: 300px; }
 }
 body.light-mode #themeToggleBtn { background: #fff; }
+
+/* ── ALGO LAB tab glow ───────────────────────────────────────────────────── */
+@keyframes algoLabGlow {
+  0%, 100% {
+    box-shadow: 0 0 0 rgba(155,107,255,0);
+    text-shadow: 0 0 0 rgba(155,107,255,0);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(155,107,255,0.3), 0 2px 10px rgba(155,107,255,0.15);
+    text-shadow: 0 0 14px rgba(155,107,255,0.7), 0 0 4px rgba(155,107,255,0.4);
+  }
+}
+#appTabAlgoLab {
+  animation: algoLabGlow 2.8s ease-in-out infinite;
+}
+#appTabAlgoLab.algo-tab-active {
+  animation: none;
+  box-shadow: 0 0 14px rgba(155,107,255,0.2);
+}
+
+/* ── V2 scan terminal loading UI ─────────────────────────────────────────── */
+@keyframes scanBeam {
+  0%   { left: -60%; }
+  100% { left: 120%;  }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.v2-scan-terminal {
+  background: rgba(11,7,25,0.96);
+  border: 1px solid rgba(155,107,255,0.45);
+  padding: 22px 26px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 0 32px rgba(155,107,255,0.1) inset;
+}
+.v2-scan-beam {
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 55%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(155,107,255,0.07), rgba(155,107,255,0.03), transparent);
+  animation: scanBeam 2s linear infinite;
+  pointer-events: none;
+}
+.v2-blink {
+  animation: blink 0.85s step-end infinite;
+  color: #9b6bff;
+}
+.v2-scan-bar-bg {
+  background: rgba(155,107,255,0.12);
+  border: 1px solid rgba(155,107,255,0.25);
+  height: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.v2-scan-bar-fill {
+  height: 100%;
+  width: 0%;
+  transition: width 0.35s ease;
+  background: linear-gradient(90deg, #7b4dcc, #9b6bff, #c4a5ff);
+  box-shadow: 0 0 10px rgba(155,107,255,0.7), 0 0 24px rgba(155,107,255,0.3);
+}

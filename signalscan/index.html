@@ -93,8 +93,8 @@
 <main>
   <!-- ── Primary app navigation ─────────────────────────────── -->
   <div id="appNav" style="display:flex;border-bottom:2px solid var(--border);margin:-20px -20px 28px;padding:0 20px;">
+    <button id="appTabAlgoLab" onclick="switchAppTab('algolab')" style="background:transparent;color:var(--muted);border:none;border-bottom:2px solid transparent;margin-bottom:-2px;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;padding:16px 28px;cursor:pointer;transition:color 0.2s,border-color 0.2s;">⚗️ ALGO LAB</button>
     <button id="appTabAnalyze" onclick="switchAppTab('analyze')" style="background:transparent;color:var(--accent);border:none;border-bottom:2px solid var(--accent);margin-bottom:-2px;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;padding:16px 28px;cursor:pointer;transition:all 0.2s;">📈 ANALYZE</button>
-    <button id="appTabAlgoLab" onclick="switchAppTab('algolab')" style="background:transparent;color:var(--muted);border:none;border-bottom:2px solid transparent;margin-bottom:-2px;font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;padding:16px 28px;cursor:pointer;transition:all 0.2s;">⚗️ ALGO LAB</button>
   </div>
 
   <div id="appSectionAnalyze">
@@ -402,9 +402,19 @@
 
     <!-- Scan results -->
     <div style="margin-top:32px;border-top:1px solid var(--border);padding-top:24px;">
-      <div id="v2ScanProgress" style="display:none;margin-bottom:20px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:var(--muted);letter-spacing:1px;" id="v2StatusText">Scanning...</span><span style="font-size:11px;color:var(--muted);" id="v2ProgressCount">0 / 0</span></div>
-        <div class="scan-progress-bg"><div class="scan-progress-fill" id="v2ProgressBar" style="background:linear-gradient(90deg,#7b4dcc,#9b6bff);"></div></div>
+      <div id="v2ScanProgress" style="display:none;margin-bottom:28px;">
+        <div class="v2-scan-terminal">
+          <div class="v2-scan-beam"></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:11px;letter-spacing:2.5px;color:#9b6bff;"><span class="v2-blink">▮</span> SCANNING UNIVERSE</div>
+            <span style="font-size:11px;color:var(--muted);font-family:'Space Mono',monospace;" id="v2ProgressCount">0 / 0</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;min-height:22px;">
+            <span style="font-size:9px;color:var(--muted);letter-spacing:1.5px;">ANALYZING</span>
+            <span id="v2StatusText" style="font-size:14px;color:#9b6bff;font-weight:700;letter-spacing:2px;font-family:'Syne',sans-serif;"></span>
+          </div>
+          <div class="v2-scan-bar-bg"><div class="v2-scan-bar-fill" id="v2ProgressBar"></div></div>
+        </div>
       </div>
       <div id="v2ResultsHeader" style="display:none;font-size:11px;color:#9b6bff;letter-spacing:1px;margin-bottom:14px;font-family:'Syne',sans-serif;font-weight:700;"></div>
       <div id="v2ResultsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>

@@ -146,6 +146,8 @@ function switchAppTab(tab) {
   if (btnAlgo) {
     btnAlgo.style.color       = tab === 'algolab' ? '#9b6bff' : 'var(--muted)';
     btnAlgo.style.borderBottom = tab === 'algolab' ? '2px solid #9b6bff' : '2px solid transparent';
+    if (tab === 'algolab') btnAlgo.classList.add('algo-tab-active');
+    else                   btnAlgo.classList.remove('algo-tab-active');
   }
 
   if (tab === 'algolab' && typeof initV2Builder === 'function') initV2Builder();
