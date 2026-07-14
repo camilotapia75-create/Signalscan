@@ -164,99 +164,358 @@ function _v2Pts(key, value) {
 }
 
 // ── Live strategy preview ─────────────────────────────────────────────────────
-// Two stacked panes. Each signal owns an SVG layer (id v2-prev-<key>) that
-// fades in/out as its toggle changes, so the chart always shows exactly what
-// the current strategy is looking for.
+// A real chart: candlesticks + indicator series computed with the same math the
+// scanner uses. Each signal owns a layer (id v2-prev-<key>) that fades in/out
+// with its toggle. Starts on deterministic sample data; testing a ticker swaps
+// in real market data and scores it against the current builder config.
+
+let _v2PrevData   = null;   // {closes, opens, highs, lows, volumes, label}
+let _v2PrevSpy    = null;   // SPY closes for the relative-strength layer
+let _v2TestedTicker = null; // last live-tested ticker
+
+function _v2SampleData() {
+  let s = 42;
+  const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  const closes = [], opens = [], highs = [], lows = [], volumes = [];
+  let p = 84;
+  for (let i = 0; i < 260; i++) {
+    const chg = 0.0016 + Math.sin(i / 17) * 0.004 + Math.sin(i / 41) * 0.003 + (rnd() - 0.5) * 0.02;
+    const o = p; p = Math.max(3, p * (1 + chg));
+    opens.push(o); closes.push(p);
+    highs.push(Math.max(o, p) * (1 + rnd() * 0.008));
+    lows.push(Math.min(o, p) * (1 - rnd() * 0.008));
+    volumes.push(Math.round(800000 + rnd() * 900000 + (chg > 0.013 ? 700000 : 0)));
+  }
+  // gentle market line for the SPY layer
+  const spy = closes.map((_, i) => 100 * (1 + 0.0009 * i) + Math.sin(i / 9));
+  return { closes, opens, highs, lows, volumes, spy, label: 'SAMPLE' };
+}
+
+// Rolling indicator series (calc.js's calcEMA supplies EMA arrays)
+function _v2RsiSeries(closes, period = 14) {
+  const out = new Array(closes.length).fill(null);
+  if (closes.length < period + 1) return out;
+  let ag = 0, al = 0;
+  for (let i = 1; i <= period; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) ag += d; else al -= d;
+  }
+  ag /= period; al /= period;
+  out[period] = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
+    al = (al * (period - 1) + Math.max(-d, 0)) / period;
+    out[i] = al === 0 ? 100 : 100 - 100 / (1 + ag / al);
+  }
+  return out;
+}
+
+function _v2BbSeries(closes, period = 20) {
+  const upper = [], lower = [], mid = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period - 1) { upper.push(null); lower.push(null); mid.push(null); continue; }
+    const sl = closes.slice(i - period + 1, i + 1);
+    const m  = sl.reduce((a, b) => a + b, 0) / period;
+    const sd = Math.sqrt(sl.reduce((a, b) => a + (b - m) ** 2, 0) / period);
+    upper.push(m + 2 * sd); lower.push(m - 2 * sd); mid.push(m);
+  }
+  return { upper, lower, mid };
+}
+
+function _v2MacdSeries(closes) {
+  const e12 = calcEMA(closes, 12), e26 = calcEMA(closes, 26);
+  const line = e12.map((v, i) => v - e26[i]);
+  const sig  = calcEMA(line, 9);
+  return { line, sig, hist: line.map((v, i) => v - sig[i]) };
+}
+
+function _v2ObvSeries(closes, volumes) {
+  const out = [0];
+  for (let i = 1; i < closes.length; i++) {
+    let v = out[i - 1];
+    if (closes[i] > closes[i - 1]) v += (volumes[i] || 0);
+    else if (closes[i] < closes[i - 1]) v -= (volumes[i] || 0);
+    out.push(v);
+  }
+  return out;
+}
+
+function _v2ParamVal(key, param, def) {
+  const el = document.querySelector(`input[data-key="${key}"][data-param="${param}"]`);
+  const v = parseFloat(el?.value);
+  return isNaN(v) ? def : v;
+}
+
+function _v2Poly(xs, ys) {
+  const pts = [];
+  for (let i = 0; i < xs.length; i++) if (ys[i] != null && isFinite(ys[i])) pts.push(`${xs[i].toFixed(1)},${ys[i].toFixed(1)}`);
+  return pts.join(' ');
+}
+
+function _v2RenderPreview() {
+  const host = document.getElementById('v2PrevChart');
+  if (!host) return;
+  const d = _v2PrevData || (_v2PrevData = _v2SampleData());
+
+  const N = Math.min(130, d.closes.length);          // visible window
+  const off = d.closes.length - N;                    // full history still feeds the math
+  const W = 760, PH = 210, VH = 34, RH = 62, MH = 62, PAD = 44; // price/vol/rsi/macd pane heights, right axis pad
+  const bw = (W - PAD) / N;                           // bar slot width
+  const cx = i => (i + 0.5) * bw;                     // center x for window index i
+
+  const win = arr => arr.slice(off);
+  const closes = win(d.closes), opens = win(d.opens || d.closes), highs = win(d.highs), lows = win(d.lows), vols = win(d.volumes);
+
+  // indicator series on FULL history, then windowed
+  const e9   = win(calcEMA(d.closes, 9)),  e21 = win(calcEMA(d.closes, 21));
+  const e50  = win(calcEMA(d.closes, 50)), e200 = d.closes.length >= 200 ? win(calcEMA(d.closes, 200)) : null;
+  const bb   = _v2BbSeries(d.closes);
+  const bbU  = win(bb.upper), bbL = win(bb.lower);
+  const rsiS = win(_v2RsiSeries(d.closes));
+  const mac  = _v2MacdSeries(d.closes);
+  const macH = win(mac.hist), macL = win(mac.line), macSg = win(mac.sig);
+  const obvS = win(_v2ObvSeries(d.closes, d.volumes));
+  const spyS = d.spy ? win(d.spy) : null;
+
+  // price scale (include bands & EMAs so nothing clips)
+  let pMin = Infinity, pMax = -Infinity;
+  const consider = v => { if (v != null && isFinite(v)) { if (v < pMin) pMin = v; if (v > pMax) pMax = v; } };
+  lows.forEach(consider); highs.forEach(consider); bbU.forEach(consider); bbL.forEach(consider);
+  if (e200) e200.forEach(consider);
+  const pSpan = (pMax - pMin) || 1; pMin -= pSpan * 0.04; pMax += pSpan * 0.04;
+  const py = v => PH - ((v - pMin) / (pMax - pMin)) * PH;
+
+  const xs = closes.map((_, i) => cx(i));
+
+  // ── price pane ──
+  let g = '';
+  // gridlines + right axis labels
+  for (let k = 1; k <= 4; k++) {
+    const gy = (PH / 5) * k, gv = pMax - (pMax - pMin) * (gy / PH);
+    g += `<line x1="0" y1="${gy}" x2="${W - PAD}" y2="${gy}" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>
+          <text x="${W - PAD + 6}" y="${gy + 3}" font-size="9" fill="rgba(255,255,255,0.35)" font-family="monospace">${gv >= 1000 ? gv.toFixed(0) : gv.toFixed(2)}</text>`;
+  }
+
+  // BB layer (fill + bands)
+  const bbTop = _v2Poly(xs, bbU.map(v => v && py(v)));
+  const bbBotR = [];
+  for (let i = xs.length - 1; i >= 0; i--) if (bbL[i] != null) bbBotR.push(`${xs[i].toFixed(1)},${py(bbL[i]).toFixed(1)}`);
+  g += `<g id="v2-prev-bb_constructive" class="v2-prev-layer">
+    <polygon points="${bbTop} ${bbBotR.join(' ')}" fill="rgba(77,159,255,0.06)"/>
+    <polyline points="${bbTop}" stroke="rgba(120,170,255,0.45)" stroke-width="1" fill="none"/>
+    <polyline points="${_v2Poly(xs, bbL.map(v => v && py(v)))}" stroke="rgba(120,170,255,0.45)" stroke-width="1" fill="none"/>
+    <text x="4" y="12" font-size="9" fill="rgba(120,170,255,0.7)" font-family="monospace">BB(20,2)</text></g>`;
+  g += `<g id="v2-prev-bb_extended" class="v2-prev-layer">
+    <polyline points="${bbTop}" stroke="rgba(255,61,107,0.8)" stroke-width="1.2" stroke-dasharray="3,3" fill="none"/>
+    <text x="${W - PAD - 118}" y="12" font-size="9" fill="rgba(255,61,107,0.85)" font-family="monospace">close &gt; upper = flag</text></g>`;
+
+  // extension lines off EMA50 (positions follow the sliders)
+  const extMax = _v2ParamVal('extension_healthy', 'extMax', 15);
+  const extMin = _v2ParamVal('extension_over',   'extMin', 25);
+  g += `<g id="v2-prev-extension_healthy" class="v2-prev-layer">
+    <polyline points="${_v2Poly(xs, e50.map(v => v && py(v * (1 + extMax / 100))))}" stroke="rgba(0,255,136,0.55)" stroke-width="1" stroke-dasharray="5,4" fill="none"/>
+    <text x="4" y="${(py(e50[8] * (1 + extMax / 100)) || 20) - 4}" font-size="9" fill="rgba(0,255,136,0.7)" font-family="monospace">+${extMax}% ext</text></g>`;
+  g += `<g id="v2-prev-extension_over" class="v2-prev-layer">
+    <polyline points="${_v2Poly(xs, e50.map(v => v && py(v * (1 + extMin / 100))))}" stroke="rgba(255,61,107,0.65)" stroke-width="1" stroke-dasharray="5,4" fill="none"/>
+    <text x="4" y="${(py(e50[8] * (1 + extMin / 100)) || 12) - 4}" font-size="9" fill="rgba(255,61,107,0.8)" font-family="monospace">+${extMin}% over</text></g>`;
+
+  // SPY relative line (normalized to first visible close)
+  if (spyS && spyS[0]) {
+    const norm = spyS.map(v => v * (closes[0] / spyS[0]));
+    const spyLine = _v2Poly(xs, norm.map(v => py(v)));
+    g += `<g id="v2-prev-spy_outperform" class="v2-prev-layer">
+      <polyline points="${spyLine}" stroke="rgba(160,170,190,0.7)" stroke-width="1.2" fill="none"/>
+      <text x="${xs[Math.floor(N * 0.72)]}" y="${py(norm[Math.floor(N * 0.72)]) - 5}" font-size="9" fill="rgba(160,170,190,0.8)" font-family="monospace">SPY</text></g>`;
+    g += `<g id="v2-prev-spy_underperform" class="v2-prev-layer">
+      <polyline points="${spyLine}" stroke="rgba(255,61,107,0.4)" stroke-width="1.2" stroke-dasharray="2,3" fill="none"/></g>`;
+  }
+
+  // EMA layers
+  g += `<g id="v2-prev-ema200_above" class="v2-prev-layer">${e200
+    ? `<polyline points="${_v2Poly(xs, e200.map(v => v && py(v)))}" stroke="#ffcc44" stroke-width="1.4" stroke-dasharray="7,4" fill="none" opacity="0.8"/>
+       <text x="${W - PAD - 52}" y="${(py(e200[N - 1]) || PH - 6) - 5}" font-size="9" fill="rgba(255,204,68,0.85)" font-family="monospace">EMA200</text>`
+    : ''}</g>`;
+  g += `<g id="v2-prev-ema_full_stack" class="v2-prev-layer">
+    <polyline points="${_v2Poly(xs, e21.map(v => py(v)))}" stroke="#4d9fff" stroke-width="1.4" fill="none" opacity="0.9"/>
+    <polyline points="${_v2Poly(xs, e50.map(v => py(v)))}" stroke="#ff9055" stroke-width="1.4" fill="none" opacity="0.85"/>
+    <text x="${W - PAD - 46}" y="${py(e21[N - 1]) - 5}" font-size="9" fill="#4d9fff" font-family="monospace">EMA21</text>
+    <text x="${W - PAD - 46}" y="${py(e50[N - 1]) + 11}" font-size="9" fill="#ff9055" font-family="monospace">EMA50</text></g>`;
+  g += `<g id="v2-prev-ema_partial" class="v2-prev-layer">
+    <polyline points="${_v2Poly(xs, e9.map(v => py(v)))}" stroke="#00ff88" stroke-width="1.4" fill="none" opacity="0.9"/>
+    <text x="${W - PAD - 40}" y="${py(e9[N - 1]) - 5}" font-size="9" fill="#00ff88" font-family="monospace">EMA9</text></g>`;
+
+  // volume bars (bottom strip of price pane)
+  const vMax = Math.max(...vols) || 1;
+  let volBars = '', volAvgPts = [];
+  for (let i = 0; i < N; i++) {
+    const h = (vols[i] / vMax) * VH;
+    const up = closes[i] >= opens[i];
+    volBars += `<rect x="${(cx(i) - bw * 0.32).toFixed(1)}" y="${(PH - h).toFixed(1)}" width="${(bw * 0.64).toFixed(1)}" height="${h.toFixed(1)}" fill="${up ? 'rgba(0,255,136,0.22)' : 'rgba(255,61,107,0.22)'}"/>`;
+    if (i >= 20) {
+      const avg = vols.slice(i - 20, i).reduce((a, b) => a + b, 0) / 20;
+      volAvgPts.push(`${cx(i).toFixed(1)},${(PH - (avg / vMax) * VH).toFixed(1)}`);
+    }
+  }
+  g += `<g id="v2-prev-volume_expanding" class="v2-prev-layer">${volBars}
+    <polyline points="${volAvgPts.join(' ')}" stroke="rgba(255,204,68,0.6)" stroke-width="1" fill="none"/>
+    <text x="4" y="${PH - VH - 2}" font-size="9" fill="rgba(255,255,255,0.35)" font-family="monospace">VOL / 20d avg</text></g>`;
+
+  // candlesticks (always on top)
+  let candles = '';
+  for (let i = 0; i < N; i++) {
+    const up = closes[i] >= opens[i];
+    const col = up ? '#00d977' : '#ff3d6b';
+    const bodyT = py(Math.max(opens[i], closes[i])), bodyB = py(Math.min(opens[i], closes[i]));
+    candles += `<line x1="${cx(i).toFixed(1)}" y1="${py(highs[i]).toFixed(1)}" x2="${cx(i).toFixed(1)}" y2="${py(lows[i]).toFixed(1)}" stroke="${col}" stroke-width="1"/>
+      <rect x="${(cx(i) - bw * 0.3).toFixed(1)}" y="${bodyT.toFixed(1)}" width="${(bw * 0.6).toFixed(1)}" height="${Math.max(1, bodyB - bodyT).toFixed(1)}" fill="${col}"/>`;
+  }
+  g += `<g>${candles}</g>`;
+  // last price tag
+  const lp = closes[N - 1];
+  g += `<rect x="${W - PAD + 2}" y="${py(lp) - 8}" width="${PAD - 4}" height="15" rx="2" fill="rgba(0,255,136,0.16)"/>
+        <text x="${W - PAD + 6}" y="${py(lp) + 3.5}" font-size="9" fill="#00ff88" font-family="monospace">${lp >= 1000 ? lp.toFixed(0) : lp.toFixed(2)}</text>`;
+
+  // ── RSI pane ──
+  const ry = v => RH - (v / 100) * RH;
+  const rmMin = _v2ParamVal('rsi_momentum', 'rsiMin', 48), rmMax = _v2ParamVal('rsi_momentum', 'rsiMax', 65);
+  const rdMin = _v2ParamVal('rsi_dip', 'rsiMin', 38),      rdMax = _v2ParamVal('rsi_dip', 'rsiMax', 48);
+  let rg = `<line x1="0" y1="${ry(70)}" x2="${W - PAD}" y2="${ry(70)}" stroke="rgba(255,255,255,0.10)" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="0" y1="${ry(30)}" x2="${W - PAD}" y2="${ry(30)}" stroke="rgba(255,255,255,0.10)" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="${W - PAD + 6}" y="${ry(70) + 3}" font-size="9" fill="rgba(255,255,255,0.3)" font-family="monospace">70</text>
+    <text x="${W - PAD + 6}" y="${ry(30) + 3}" font-size="9" fill="rgba(255,255,255,0.3)" font-family="monospace">30</text>`;
+  rg += `<g id="v2-prev-rsi_momentum" class="v2-prev-layer">
+    <rect x="0" y="${ry(rmMax)}" width="${W - PAD}" height="${ry(rmMin) - ry(rmMax)}" fill="rgba(0,255,136,0.10)"/>
+    <text x="4" y="${ry(rmMax) + 10}" font-size="9" fill="rgba(0,255,136,0.75)" font-family="monospace">momentum ${rmMin}–${rmMax}</text></g>`;
+  rg += `<g id="v2-prev-rsi_dip" class="v2-prev-layer">
+    <rect x="0" y="${ry(rdMax)}" width="${W - PAD}" height="${ry(rdMin) - ry(rdMax)}" fill="rgba(77,159,255,0.12)"/>
+    <text x="${W - PAD - 96}" y="${ry(rdMin) - 3}" font-size="9" fill="rgba(77,159,255,0.8)" font-family="monospace">dip ${rdMin}–${rdMax}</text></g>`;
+  rg += `<polyline points="${_v2Poly(xs, rsiS.map(v => v == null ? null : ry(v)))}" stroke="#b48cff" stroke-width="1.5" fill="none"/>
+    <text x="4" y="10" font-size="9" fill="rgba(180,140,255,0.8)" font-family="monospace">RSI 14</text>`;
+
+  // ── MACD + OBV pane ──
+  const hMax = Math.max(...macH.map(Math.abs).filter(isFinite)) || 1;
+  const my = v => MH / 2 - (v / hMax) * (MH / 2 - 4);
+  let mg = `<line x1="0" y1="${MH / 2}" x2="${W - PAD}" y2="${MH / 2}" stroke="rgba(255,255,255,0.10)" stroke-width="1"/>`;
+  let bars = '';
+  for (let i = 0; i < N; i++) {
+    if (!isFinite(macH[i])) continue;
+    const y0 = my(Math.max(macH[i], 0)), y1 = my(Math.min(macH[i], 0));
+    bars += `<rect x="${(cx(i) - bw * 0.3).toFixed(1)}" y="${y0.toFixed(1)}" width="${(bw * 0.6).toFixed(1)}" height="${Math.max(1, y1 - y0).toFixed(1)}" fill="${macH[i] >= 0 ? 'rgba(0,255,136,0.5)' : 'rgba(255,61,107,0.5)'}"/>`;
+  }
+  const mScale = Math.max(...macL.map(Math.abs).filter(isFinite)) || 1;
+  const mly = v => MH / 2 - (v / mScale) * (MH / 2 - 4);
+  mg += `<g id="v2-prev-macd_positive" class="v2-prev-layer">${bars}
+    <polyline points="${_v2Poly(xs, macL.map(v => isFinite(v) ? mly(v) : null))}" stroke="#4d9fff" stroke-width="1.2" fill="none" opacity="0.9"/>
+    <polyline points="${_v2Poly(xs, macSg.map(v => isFinite(v) ? mly(v) : null))}" stroke="#ffcc44" stroke-width="1.2" fill="none" opacity="0.8"/>
+    <text x="4" y="10" font-size="9" fill="rgba(0,255,136,0.7)" font-family="monospace">MACD 12,26,9</text></g>`;
+  const oMin = Math.min(...obvS), oMax = Math.max(...obvS);
+  const oy = v => MH - 4 - ((v - oMin) / ((oMax - oMin) || 1)) * (MH - 8);
+  mg += `<g id="v2-prev-obv_rising" class="v2-prev-layer">
+    <polyline points="${_v2Poly(xs, obvS.map(oy))}" stroke="rgba(155,107,255,0.9)" stroke-width="1.4" fill="none"/>
+    <text x="${W - PAD - 34}" y="${oy(obvS[N - 1]) - 5}" font-size="9" fill="rgba(155,107,255,0.85)" font-family="monospace">OBV</text></g>`;
+
+  host.innerHTML = `
+    <div class="v2-prev-pane-lbl">PRICE · ${(_v2PrevData.label || 'SAMPLE')} · 1D</div>
+    <svg viewBox="0 0 ${W} ${PH}" class="v2-prev-svg" style="height:${PH}px" preserveAspectRatio="none">${g}</svg>
+    <div class="v2-prev-pane-lbl" style="margin-top:6px;">RSI</div>
+    <svg viewBox="0 0 ${W} ${RH}" class="v2-prev-svg" style="height:${RH}px" preserveAspectRatio="none">${rg}</svg>
+    <div class="v2-prev-pane-lbl" style="margin-top:6px;">MACD · OBV</div>
+    <svg viewBox="0 0 ${W} ${MH}" class="v2-prev-svg" style="height:${MH}px" preserveAspectRatio="none">${mg}</svg>`;
+
+  _v2PrevSync();
+}
+
+let _v2RefreshTimer = null;
+function _v2QueuePreviewRefresh() {
+  clearTimeout(_v2RefreshTimer);
+  _v2RefreshTimer = setTimeout(() => {
+    _v2RenderPreview();
+    if (_v2TestedTicker) runV2TickerTest(true);
+  }, 220);
+}
+
+// ── Live single-ticker test ───────────────────────────────────────────────────
+
+async function runV2TickerTest(silent) {
+  const input = document.getElementById('v2TestTickerInput');
+  const modeEl = document.getElementById('v2PrevMode');
+  const verdictEl = document.getElementById('v2TestVerdict');
+  let ticker = (silent ? _v2TestedTicker : input?.value || '').trim().toUpperCase();
+  if (!ticker) return;
+  if (typeof normalizeTicker === 'function') ticker = normalizeTicker(ticker);
+
+  if (!silent && modeEl) modeEl.textContent = '⏳ LOADING ' + ticker;
+  try {
+    const [data, spyData] = await Promise.all([
+      _fetchScanData(ticker, '1y|6mo'),
+      _fetchScanData('SPY', '1y|6mo'),
+    ]);
+    if (!data || (data.closes || []).filter(Boolean).length < 30) {
+      if (modeEl) modeEl.textContent = '⚠ NO DATA FOR ' + ticker;
+      return;
+    }
+    // clean & align
+    const okIdx = [];
+    data.closes.forEach((c, i) => { if (c != null) okIdx.push(i); });
+    const pick = (arr, fb) => okIdx.map(i => (arr || [])[i] ?? fb?.[i]);
+    _v2PrevData = {
+      closes: pick(data.closes), opens: pick(data.opens, data.closes),
+      highs: pick(data.highs, data.closes), lows: pick(data.lows, data.closes),
+      volumes: okIdx.map(i => (data.volumes || [])[i] || 0),
+      spy: spyData ? okIdx.map(i => (spyData.closes || [])[i]).map(v => v ?? null) : null,
+      label: ticker,
+    };
+    _v2TestedTicker = ticker;
+    _v2RenderPreview();
+    if (modeEl) modeEl.textContent = '● LIVE ' + ticker;
+
+    // score against the CURRENT builder config — identical math to the full scan
+    const config = getBuilderConfig();
+    const res = await analyzeWithConfig(ticker, config, spyData?.closes || null, true);
+    if (!verdictEl) return;
+    verdictEl.style.display = 'block';
+    if (res?.gateFail) {
+      verdictEl.innerHTML = `<div class="v2-verdict v2-verdict-fail">
+        <span class="v2-verdict-badge">✕ GATED OUT</span>
+        <span class="v2-verdict-detail">${res.gateFail}</span></div>`;
+      return;
+    }
+    if (!res) { verdictEl.innerHTML = ''; verdictEl.style.display = 'none'; return; }
+    const pass = res.qualifies;
+    const chips = V2_SIGNAL_DEFS.map(def => {
+      const cfgSig = (config.signals || []).find(s => s.key === def.key);
+      if (!cfgSig || cfgSig.enabled === false) return '';
+      const hit = res.hitKeys.includes(def.key);
+      const neg = cfgSig.points < 0;
+      const cls = hit ? (neg ? 'v2-chip-neg' : 'v2-chip-hit') : 'v2-chip-miss';
+      const pts = hit ? ` ${cfgSig.points > 0 ? '+' : ''}${cfgSig.points}` : '';
+      return `<span class="v2-chip ${cls}">${hit ? (neg ? '⚠' : '✓') : '·'} ${def.label.replace(/ ⚠$/, '')}${pts}</span>`;
+    }).join('');
+    verdictEl.innerHTML = `<div class="v2-verdict ${pass ? 'v2-verdict-pass' : 'v2-verdict-fail'}">
+      <span class="v2-verdict-badge">${pass ? '✓ QUALIFIES' : '✕ BELOW THRESHOLD'}</span>
+      <span class="v2-verdict-score">${res.score.toFixed(1)} / ${res.threshold} pts needed</span>
+      <span class="v2-verdict-detail">$${res.price.toFixed(2)} · conviction ${res.conviction}%</span>
+    </div><div class="v2-chip-row">${chips}</div>`;
+  } catch (e) {
+    if (modeEl) modeEl.textContent = '⚠ FETCH FAILED';
+  }
+}
 
 function _v2PreviewHTML() {
   return `<div id="v2PreviewPanel" class="v2-preview">
     <div class="v2-preview-hdr">
       <span>LIVE STRATEGY PREVIEW</span>
-      <span id="v2PrevCount" class="v2-prev-count"></span>
+      <div class="v2-test-controls">
+        <input id="v2TestTickerInput" class="v2-test-input" placeholder="TICKER — e.g. NVDA" maxlength="12"
+          onkeydown="if(event.key==='Enter')runV2TickerTest()">
+        <button class="v2-test-btn" onclick="runV2TickerTest()">⚡ TEST</button>
+        <span id="v2PrevMode" class="v2-prev-count">SAMPLE DATA</span>
+        <span id="v2PrevCount" class="v2-prev-count"></span>
+      </div>
     </div>
-    <div class="v2-prev-pane-lbl">PRICE</div>
-    <svg viewBox="0 0 440 160" fill="none" class="v2-prev-svg" preserveAspectRatio="none">
-      <g id="v2-prev-extension_over" class="v2-prev-layer">
-        <polyline points="0,84 110,68 220,48 330,28 440,12" stroke="#ff3d6b" stroke-width="1.2" stroke-dasharray="5,4" opacity="0.75"/>
-        <text x="6" y="80" font-size="9" fill="rgba(255,61,107,0.8)" font-family="monospace">&gt;25% over EMA50 — overextended</text>
-      </g>
-      <g id="v2-prev-extension_healthy" class="v2-prev-layer">
-        <polyline points="0,104 60,100 120,88 180,78 240,72 300,56 360,44 440,32" stroke="#00ff88" stroke-width="1.1" stroke-dasharray="5,4" opacity="0.6"/>
-        <text x="6" y="100" font-size="9" fill="rgba(0,255,136,0.7)" font-family="monospace">+15% ext ceiling — healthy below</text>
-      </g>
-      <g id="v2-prev-bb_constructive" class="v2-prev-layer">
-        <polyline points="0,100 110,84 220,64 330,44 440,26" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="3,3"/>
-        <polyline points="0,140 110,128 220,112 330,96 440,80" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="3,3"/>
-        <text x="360" y="98" font-size="9" fill="rgba(255,255,255,0.4)" font-family="monospace">BB</text>
-      </g>
-      <g id="v2-prev-bb_extended" class="v2-prev-layer">
-        <circle cx="390" cy="32" r="7" stroke="#ff3d6b" stroke-width="1.5" fill="rgba(255,61,107,0.15)"/>
-        <text x="316" y="20" font-size="9" fill="rgba(255,61,107,0.85)" font-family="monospace">above upper band</text>
-      </g>
-      <g id="v2-prev-ema_full_stack" class="v2-prev-layer">
-        <polyline points="0,128 60,122 120,106 180,94 240,88 300,68 360,56 440,44" stroke="#4d9fff" stroke-width="1.4" opacity="0.85"/>
-        <polyline points="0,134 60,130 120,118 180,108 240,102 300,86 360,74 440,62" stroke="#ff9055" stroke-width="1.4" opacity="0.8"/>
-        <text x="6" y="126" font-size="9" fill="rgba(77,159,255,0.8)" font-family="monospace">EMA21</text>
-        <text x="6" y="141" font-size="9" fill="rgba(255,144,85,0.8)" font-family="monospace">EMA50</text>
-      </g>
-      <g id="v2-prev-ema_partial" class="v2-prev-layer">
-        <polyline points="0,124 60,118 120,98 180,86 240,80 300,58 360,46 440,34" stroke="#00ff88" stroke-width="1.4" opacity="0.85"/>
-        <text x="60" y="112" font-size="9" fill="rgba(0,255,136,0.8)" font-family="monospace">EMA9</text>
-      </g>
-      <g id="v2-prev-ema200_above" class="v2-prev-layer">
-        <polyline points="0,150 110,147 220,144 330,141 440,138" stroke="#ffcc44" stroke-width="1.3" stroke-dasharray="6,4" opacity="0.7"/>
-        <text x="360" y="149" font-size="9" fill="rgba(255,204,68,0.8)" font-family="monospace">EMA200</text>
-      </g>
-      <g id="v2-prev-spy_outperform" class="v2-prev-layer">
-        <polyline points="0,118 110,112 220,108 330,104 440,100" stroke="#4d9fff" stroke-width="1.2" opacity="0.45"/>
-        <text x="200" y="118" font-size="9" fill="rgba(77,159,255,0.65)" font-family="monospace">SPY (stock above = outperforming)</text>
-      </g>
-      <g id="v2-prev-spy_underperform" class="v2-prev-layer">
-        <polyline points="0,118 110,124 220,130 330,134 440,140" stroke="#ff3d6b" stroke-width="1.2" opacity="0.55" stroke-dasharray="2,3"/>
-        <text x="230" y="152" font-size="9" fill="rgba(255,61,107,0.7)" font-family="monospace">lagging SPY</text>
-      </g>
-      <polyline points="0,120 30,112 60,116 90,100 120,92 150,98 180,80 210,72 240,78 270,60 300,52 330,58 360,42 390,34 420,38 440,30"
-        stroke="#e8edf2" stroke-width="2" opacity="0.95"/>
-    </svg>
-    <div class="v2-prev-pane-lbl" style="margin-top:8px;">MOMENTUM &amp; VOLUME</div>
-    <svg viewBox="0 0 440 80" fill="none" class="v2-prev-svg v2-prev-svg-sm" preserveAspectRatio="none">
-      <g id="v2-prev-rsi_momentum" class="v2-prev-layer">
-        <rect x="0" y="22" width="440" height="20" fill="rgba(0,255,136,0.09)"/>
-        <line x1="0" y1="22" x2="440" y2="22" stroke="rgba(0,255,136,0.4)" stroke-width="0.8" stroke-dasharray="4,3"/>
-        <line x1="0" y1="42" x2="440" y2="42" stroke="rgba(0,255,136,0.4)" stroke-width="0.8" stroke-dasharray="4,3"/>
-        <text x="4" y="19" font-size="9" fill="rgba(0,255,136,0.7)" font-family="monospace">RSI momentum zone</text>
-        <polyline points="0,52 40,38 80,30 120,36 160,28 200,33 240,29 280,35 320,30 360,34 400,28 440,31" stroke="#00ff88" stroke-width="1.5" opacity="0.9"/>
-      </g>
-      <g id="v2-prev-rsi_dip" class="v2-prev-layer">
-        <rect x="0" y="44" width="440" height="14" fill="rgba(77,159,255,0.10)"/>
-        <line x1="0" y1="44" x2="440" y2="44" stroke="rgba(77,159,255,0.4)" stroke-width="0.8" stroke-dasharray="4,3"/>
-        <line x1="0" y1="58" x2="440" y2="58" stroke="rgba(77,159,255,0.4)" stroke-width="0.8" stroke-dasharray="4,3"/>
-        <text x="4" y="70" font-size="9" fill="rgba(77,159,255,0.7)" font-family="monospace">RSI dip-buy zone</text>
-      </g>
-      <g id="v2-prev-macd_positive" class="v2-prev-layer">
-        <rect x="4"   y="66" width="12" height="10" fill="rgba(0,255,136,0.4)"/>
-        <rect x="22"  y="61" width="12" height="15" fill="rgba(0,255,136,0.5)"/>
-        <rect x="40"  y="57" width="12" height="19" fill="rgba(0,255,136,0.55)"/>
-        <rect x="58"  y="60" width="12" height="16" fill="rgba(0,255,136,0.5)"/>
-        <rect x="76"  y="53" width="12" height="23" fill="rgba(0,255,136,0.6)"/>
-        <rect x="94"  y="48" width="12" height="28" fill="rgba(0,255,136,0.68)"/>
-        <rect x="112" y="44" width="12" height="32" fill="rgba(0,255,136,0.75)"/>
-        <text x="130" y="74" font-size="9" fill="rgba(0,255,136,0.7)" font-family="monospace">MACD+</text>
-      </g>
-      <g id="v2-prev-volume_expanding" class="v2-prev-layer">
-        <rect x="250" y="66" width="14" height="10" fill="rgba(155,107,255,0.35)"/>
-        <rect x="270" y="63" width="14" height="13" fill="rgba(155,107,255,0.35)"/>
-        <rect x="290" y="65" width="14" height="11" fill="rgba(155,107,255,0.35)"/>
-        <rect x="310" y="62" width="14" height="14" fill="rgba(155,107,255,0.35)"/>
-        <rect x="330" y="64" width="14" height="12" fill="rgba(155,107,255,0.35)"/>
-        <rect x="350" y="42" width="14" height="34" fill="rgba(155,107,255,0.8)"/>
-        <text x="370" y="52" font-size="9" fill="rgba(155,107,255,0.85)" font-family="monospace">vol ↑</text>
-      </g>
-      <g id="v2-prev-obv_rising" class="v2-prev-layer">
-        <polyline points="180,72 230,66 280,58 330,48 380,38 440,24" stroke="#4d9fff" stroke-width="1.5" opacity="0.85"/>
-        <text x="182" y="62" font-size="9" fill="rgba(77,159,255,0.8)" font-family="monospace">OBV</text>
-      </g>
-    </svg>
+    <div id="v2TestVerdict" style="display:none;"></div>
+    <div id="v2PrevChart"></div>
   </div>`;
 }
 
@@ -296,7 +555,7 @@ function initV2Builder() {
         <input type="range" class="v2-range"
           data-key="${def.key}" data-param="${p.id}"
           value="${p.default}" min="${p.min}" max="${p.max}" step="${p.step}"
-          oninput="_v2Disp('${def.key}','${p.id}',this.value,${isFloat});_v2Fill(this)">
+          oninput="_v2Disp('${def.key}','${p.id}',this.value,${isFloat});_v2Fill(this);_v2QueuePreviewRefresh()">
         <span class="v2-sl-val" id="v2-val-${def.key}-${p.id}">${dispVal}</span>
       </div>`;
     }).join('');
@@ -305,7 +564,7 @@ function initV2Builder() {
     return `<div class="v2-sig-card${isNeg ? ' v2-sig-neg-card' : ''}">
       <div class="v2-sig-hdr">
         <label class="v2-toggle">
-          <input type="checkbox" data-sig-key="${def.key}" ${def.points > 0 ? 'checked' : ''} onchange="_v2PrevSync()">
+          <input type="checkbox" data-sig-key="${def.key}" ${def.points > 0 ? 'checked' : ''} onchange="_v2PrevSync();_v2QueuePreviewRefresh()">
           <span class="v2-toggle-track"></span>
         </label>
         <span class="v2-sig-name${isNeg ? ' v2-sig-neg-name' : ''}">${def.label}</span>
@@ -318,7 +577,7 @@ function initV2Builder() {
         <input type="range" class="v2-range v2-range-pts"
           data-pts-for="${def.key}"
           value="${def.points}" min="${ptsMin}" max="${ptsMax}" step="0.5"
-          oninput="_v2Pts('${def.key}',this.value);_v2Fill(this)">
+          oninput="_v2Pts('${def.key}',this.value);_v2Fill(this);_v2QueuePreviewRefresh()">
         <span class="v2-sl-val v2-wt-val" id="v2-pts-val-${def.key}">${ptsStr}</span>
       </div>
     </div>`;
@@ -333,7 +592,7 @@ function initV2Builder() {
     neg.map(card).join('');
 
   container.querySelectorAll('.v2-range').forEach(_v2Fill);
-  _v2PrevSync();
+  _v2RenderPreview();
   loadCommunityAlgos();
 }
 
@@ -396,7 +655,7 @@ function loadConfigIntoBuilder(config) {
       }
     }
   }
-  _v2PrevSync();
+  _v2RenderPreview();
 }
 
 function resetV2Builder() {
@@ -421,15 +680,17 @@ function resetV2Builder() {
 
 // ── Custom scan engine ────────────────────────────────────────────────────────
 
-async function analyzeWithConfig(ticker, config, spyCloses) {
+async function analyzeWithConfig(ticker, config, spyCloses, detail) {
+  const gateFail = reason => detail ? { ticker, gateFail: reason } : null;
+
   const data = await _fetchScanData(ticker, '6mo|3mo');
-  if (!data) return null;
+  if (!data) return gateFail('No market data available for this ticker');
   const { closes, volumes } = data;
-  if (closes.length < 50) return null;
+  if (closes.length < 50) return gateFail('Not enough price history (<50 bars)');
 
   const price = closes[closes.length - 1];
   const g = config.gates || {};
-  if (!price || price < (g.minPrice ?? 2)) return null;
+  if (!price || price < (g.minPrice ?? 2)) return gateFail(`Price $${(price ?? 0).toFixed(2)} below min price gate`);
 
   const ema9   = _emaScalar(closes, 9);
   const ema21  = _emaScalar(closes, 21);
@@ -440,13 +701,13 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
   const bb     = _bbScan(closes);
   const obv    = _obvScan(closes, volumes);
 
-  if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return null;
+  if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return gateFail('Could not compute indicators');
 
-  if (g.requireAboveEMA50 !== false && price < ema50) return null;
-  if (rsi > (g.maxRSI ?? 76)) return null;
+  if (g.requireAboveEMA50 !== false && price < ema50) return gateFail(`Price $${price.toFixed(2)} below EMA50 $${ema50.toFixed(2)} — hard gate`);
+  if (rsi > (g.maxRSI ?? 76)) return gateFail(`RSI ${rsi.toFixed(0)} above max RSI gate (${g.maxRSI ?? 76}) — overbought`);
   if (g.requireRisingEMA50Slope !== false && closes.length >= 70) {
     const prior = _emaScalar(closes.slice(0, -20), 50);
-    if (prior && ema50 < prior * 0.998) return null;
+    if (prior && ema50 < prior * 0.998) return gateFail('EMA50 slope falling — hard gate');
   }
 
   const sm = {};
@@ -454,42 +715,44 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
 
   let score = 0;
   const signals = [];
+  const hitKeys = [];
+  const _hit = k => hitKeys.push(k);
 
   // EMA alignment
   const sf = sm['ema_full_stack'], sp = sm['ema_partial'];
   if (sf?.enabled && ema9 > ema21 && ema21 > ema50) {
-    score += sf.points; signals.push('Full EMA stack aligned (9>21>50)');
+    score += sf.points; _hit('ema_full_stack'); signals.push('Full EMA stack aligned (9>21>50)');
   } else if (sp?.enabled && ema9 > ema21) {
-    score += sp.points; signals.push('EMA9>EMA21 — short-term momentum');
+    score += sp.points; _hit('ema_partial'); signals.push('EMA9>EMA21 — short-term momentum');
   }
 
   // EMA200
   const s200 = sm['ema200_above'];
   if (s200?.enabled && ema200 && price > ema200) {
-    score += s200.points; signals.push(`Above EMA200 ($${ema200.toFixed(2)})`);
+    score += s200.points; _hit('ema200_above'); signals.push(`Above EMA200 ($${ema200.toFixed(2)})`);
   }
 
   // RSI zones
   const srm = sm['rsi_momentum'], srd = sm['rsi_dip'];
   if (srm?.enabled && rsi >= (srm.rsiMin ?? 48) && rsi <= (srm.rsiMax ?? 65)) {
-    score += srm.points; signals.push(`RSI ${rsi.toFixed(0)} — momentum zone`);
+    score += srm.points; _hit('rsi_momentum'); signals.push(`RSI ${rsi.toFixed(0)} — momentum zone`);
   } else if (srd?.enabled && rsi >= (srd.rsiMin ?? 38) && rsi < (srd.rsiMax ?? 48)) {
-    score += srd.points; signals.push(`RSI ${rsi.toFixed(0)} — dip zone`);
+    score += srd.points; _hit('rsi_dip'); signals.push(`RSI ${rsi.toFixed(0)} — dip zone`);
   }
 
   // MACD
   const smc = sm['macd_positive'];
   if (smc?.enabled && macd != null && macd > 0) {
-    score += smc.points; signals.push('MACD positive');
+    score += smc.points; _hit('macd_positive'); signals.push('MACD positive');
   }
 
   // Extension from EMA50
   const extPct = (price - ema50) / ema50 * 100;
   const seh = sm['extension_healthy'], seo = sm['extension_over'];
   if (seh?.enabled && extPct <= (seh.extMax ?? 15)) {
-    score += seh.points; signals.push(`${extPct.toFixed(1)}% above EMA50 — healthy`);
+    score += seh.points; _hit('extension_healthy'); signals.push(`${extPct.toFixed(1)}% above EMA50 — healthy`);
   } else if (seo?.enabled && extPct > (seo.extMin ?? 25)) {
-    score += seo.points; signals.push(`${extPct.toFixed(1)}% above EMA50 — overextended`);
+    score += seo.points; _hit('extension_over'); signals.push(`${extPct.toFixed(1)}% above EMA50 — overextended`);
   }
 
   // OBV
@@ -497,7 +760,7 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
   const obvPer = sobv?.obvPeriod ?? 10;
   if (sobv?.enabled && obv.length >= obvPer) {
     const o = obv.slice(-obvPer);
-    if (o[o.length - 1] > o[0]) { score += sobv.points; signals.push(`OBV rising ${obvPer}-day`); }
+    if (o[o.length - 1] > o[0]) { score += sobv.points; _hit('obv_rising'); signals.push(`OBV rising ${obvPer}-day`); }
   }
 
   // Volume
@@ -506,7 +769,7 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
     const rv = volumes.slice(-5).reduce((a, b) => a + (b || 0), 0) / 5;
     const av = volumes.slice(-25, -5).reduce((a, b) => a + (b || 0), 0) / 20;
     if (av > 0 && rv > av * (svol.volThreshold ?? 1.15)) {
-      score += svol.points; signals.push('Volume expanding');
+      score += svol.points; _hit('volume_expanding'); signals.push('Volume expanding');
     }
   }
 
@@ -520,9 +783,9 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
       : null;
     if (tkrRet !== null) {
       if (sout?.enabled && tkrRet > spyRet + (sout.spyAlpha ?? 3)) {
-        score += sout.points; signals.push(`Outperforming SPY by ${(tkrRet - spyRet).toFixed(1)}%`);
+        score += sout.points; _hit('spy_outperform'); signals.push(`Outperforming SPY by ${(tkrRet - spyRet).toFixed(1)}%`);
       } else if (sund?.enabled && tkrRet < spyRet - (sund.spyLag ?? 5)) {
-        score += sund.points; signals.push('Underperforming SPY');
+        score += sund.points; _hit('spy_underperform'); signals.push('Underperforming SPY');
       }
     }
   }
@@ -530,19 +793,20 @@ async function analyzeWithConfig(ticker, config, spyCloses) {
   // Bollinger Bands
   const sbc = sm['bb_constructive'], sbe = sm['bb_extended'];
   if (sbc?.enabled && price > bb.mean && price < bb.upper) {
-    score += sbc.points; signals.push('BB constructive position');
+    score += sbc.points; _hit('bb_constructive'); signals.push('BB constructive position');
   } else if (sbe?.enabled && price > bb.upper) {
-    score += sbe.points; signals.push('BB overextended');
+    score += sbe.points; _hit('bb_extended'); signals.push('BB overextended');
   }
 
   const maxScore = (config.signals || [])
     .filter(s => s.enabled && s.points > 0)
     .reduce((sum, s) => sum + s.points, 0) || 18;
 
-  const threshold  = config.scoreThreshold ?? 10;
+  const threshold  = config.scoreThreshold ?? 13;
   const conviction = Math.min(100, Math.max(0, Math.round(score / maxScore * 100)));
 
-  return { ticker, price, signals, conviction, score, qualifies: score >= threshold, topSignal: signals[0] || null };
+  return { ticker, price, signals, conviction, score, qualifies: score >= threshold,
+           topSignal: signals[0] || null, hitKeys, threshold, maxScore, gateFail: null };
 }
 
 let _v2ScanRunning = false;

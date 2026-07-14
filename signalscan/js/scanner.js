@@ -903,9 +903,10 @@ async function _fetchScanData(ticker, range = '3mo', interval = '1d') {
       const volumes = q.volume || [];
       const highs = q.high || [];
       const lows = q.low || [];
+      const opens = q.open || [];
       const timestamps = result.timestamp || [];
       if (closes.length >= 2) {
-        data = { closes, volumes, highs, lows, timestamps };
+        data = { closes, volumes, highs, lows, opens, timestamps };
         break;
       }
     } catch (_) { continue; }
