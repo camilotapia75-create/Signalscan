@@ -12,6 +12,11 @@ const SUPABASE_URL     = process.env.SUPABASE_URL     || 'https://bhykfnuljzzimz
 const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const CRON_SECRET      = process.env.CRON_SECRET;
 
+// vercel.json pins maxDuration to 60s for this route. Leave headroom so the
+// Supabase writes after the scan loop always get a chance to run.
+const SCAN_BUDGET_MS   = parseInt(process.env.SCAN_BUDGET_MS || '45000', 10);
+const SCAN_CONCURRENCY = parseInt(process.env.SCAN_CONCURRENCY || '12', 10);
+
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 let _crumb = '', _cookie = '', _crumbAt = 0;
@@ -423,27 +428,45 @@ export default async function handler(req, res) {
   const spyCloses = spyData?.closes || null;
 
   const golden = [], bullpen = [];
-  let idx = 0;
+  let idx = 0, analyzed = 0;
+
+  // Persistence happens after the scan loop, so the loop MUST finish before the
+  // platform kills the function — otherwise the whole run is discarded and
+  // nothing is ever written. Stop early and save what we have instead.
+  const BUDGET_MS = SCAN_BUDGET_MS;
 
   async function worker() {
     while (idx < tickers.length) {
+      if (Date.now() - startMs > BUDGET_MS) return;
       const ticker = tickers[idx++];
       try {
         const { golden: gb, bullpen: bp } = await analyzeTickerBoth(ticker, spyCloses, weights);
+        analyzed++;
         if (gb?.qualifies)  golden.push(gb);
         if (bp?.qualifies)  bullpen.push(bp);
       } catch (_) {}
     }
   }
 
-  await Promise.all(Array.from({ length: 8 }, worker));
+  await Promise.all(Array.from({ length: SCAN_CONCURRENCY }, worker));
+
+  const truncated = analyzed < tickers.length;
+  if (truncated) {
+    console.warn(`[scan/run] TIME BUDGET HIT — analyzed ${analyzed}/${tickers.length} tickers before ${BUDGET_MS}ms cutoff. Persisting partial results.`);
+  }
+  if (!SUPABASE_SERVICE) {
+    console.error('[scan/run] SUPABASE_SERVICE_ROLE_KEY is not set — results CANNOT be saved. The 5-day report has no data to learn from. Set it in Vercel project settings.');
+  }
 
   const gbNew = await recordBulls(golden,  'golden_bull_hof');
   const bpNew = await recordBulls(bullpen, 'bull_pen_hof');
   const ms    = Date.now() - startMs;
 
   const summary = {
-    scanned:     tickers.length,
+    scanned:     analyzed,
+    universe:    tickers.length,
+    truncated,
+    persisted:   !!SUPABASE_SERVICE,
     gb_found:    golden.length,  gb_new: gbNew,  gb_tickers: golden.map(b => b.ticker),
     bp_found:    bullpen.length, bp_new: bpNew,  bp_tickers: bullpen.map(b => b.ticker),
     duration_ms: ms,

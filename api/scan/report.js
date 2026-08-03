@@ -16,6 +16,7 @@ const SUPABASE_ANON    = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsI
 const CRON_SECRET      = process.env.CRON_SECRET;
 const RESEND_KEY       = process.env.RESEND_API_KEY;
 const REPORT_TO        = process.env.REPORT_TO_EMAIL || 'camilotapia75@gmail.com';
+const REPORT_FROM      = process.env.REPORT_FROM_EMAIL || 'Signalscan <reports@signalscan.io>';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 let _crumb = '', _cookie = '', _crumbAt = 0;
@@ -372,31 +373,64 @@ function buildEmail(perfStats, weightResult, scanLogs) {
 </html>`;
 }
 
+async function postEmail(from, subject, html) {
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_KEY}` },
+    body: JSON.stringify({ from, to: [REPORT_TO], subject, html }),
+    signal: AbortSignal.timeout(10000),
+  });
+  return { ok: res.ok, data: await res.json().catch(() => ({})) };
+}
+
 async function sendEmail(subject, html) {
   if (!RESEND_KEY) {
-    console.log('[scan/report] RESEND_API_KEY not set — skipping email');
+    console.error('[scan/report] RESEND_API_KEY is not set — no report can be delivered. Add it in Vercel project settings.');
     return false;
   }
+  // Sending from a custom domain requires that domain to be verified in Resend.
+  // If it is not, fall back to Resend's shared sender, which always delivers to
+  // the account owner — better a report from an odd address than silence.
+  const primary  = REPORT_FROM;
+  const fallback = 'Signalscan <onboarding@resend.dev>';
   try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_KEY}` },
-      body: JSON.stringify({
-        from:    'Signalscan <reports@signalscan.io>',
-        to:      [REPORT_TO],
-        subject,
-        html,
-      }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const data = await res.json();
-    if (!res.ok) { console.error('[scan/report] Resend:', data); return false; }
+    let { ok, data } = await postEmail(primary, subject, html);
+    if (!ok && primary !== fallback) {
+      console.error(`[scan/report] Resend rejected sender ${primary}:`, data,
+        '— retrying with onboarding@resend.dev. Verify signalscan.io in Resend to use your own domain.');
+      ({ ok, data } = await postEmail(fallback, subject, html));
+    }
+    if (!ok) { console.error('[scan/report] Resend:', data); return false; }
     console.log('[scan/report] Email sent:', data.id);
     return true;
   } catch (e) {
     console.error('[scan/report] sendEmail:', e.message);
     return false;
   }
+}
+
+// Plain-language alert used when the pipeline has nothing to report, so a
+// broken link in the chain is never indistinguishable from silence.
+function buildAlertEmail(diag, note) {
+  const row = (k, ok, detail) =>
+    `<tr><td style="padding:6px 10px;">${ok ? '✅' : '❌'}</td>
+         <td style="padding:6px 10px;font-family:monospace;">${k}</td>
+         <td style="padding:6px 10px;color:#666;">${detail}</td></tr>`;
+  return `<div style="font-family:system-ui,sans-serif;max-width:640px;">
+    <h2 style="color:#b45309;">⚠ Signalscan — self-improvement pipeline needs attention</h2>
+    <p style="color:#444;line-height:1.6;">${note}</p>
+    <table style="border-collapse:collapse;font-size:14px;margin:16px 0;">
+      ${row('SUPABASE_SERVICE_ROLE_KEY', diag.hasServiceKey, diag.hasServiceKey ? 'set — scans can be saved' : 'MISSING — the daily scan cannot write results')}
+      ${row('RESEND_API_KEY',            diag.hasResendKey,  'email delivery')}
+      ${row('HOF records (60d)',         diag.hofRecords > 0, `${diag.hofRecords} found`)}
+      ${row('Scan runs logged (6d)',     diag.scanRuns  > 0, `${diag.scanRuns} runs — daily cron ${diag.scanRuns ? 'is firing' : 'may not be firing or is timing out'}`)}
+      ${row('Records ready to learn from', diag.eligible >= 5, `${diag.eligible} of 5 needed (must be 7+ days old with signals recorded)`)}
+    </table>
+    <p style="color:#666;font-size:13px;line-height:1.6;">
+      Weight tuning begins automatically once 5 picks are at least 7 days old.
+      Until then this alert confirms the report job itself is alive and running on schedule.
+    </p>
+  </div>`;
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -419,7 +453,23 @@ export default async function handler(req, res) {
     ]);
 
     if (!records?.length) {
-      return res.status(200).json({ message: 'No HOF records yet', sent: false });
+      // Previously this returned silently, which is why a broken upstream step
+      // looked exactly like "nothing interesting happened". Always report.
+      const diag = {
+        hasServiceKey: !!SUPABASE_SERVICE,
+        hasResendKey:  !!RESEND_KEY,
+        hofRecords:    0,
+        scanRuns:      scanLogs?.length || 0,
+        eligible:      0,
+      };
+      const note = !SUPABASE_SERVICE
+        ? 'The daily scanner has no Supabase service-role key, so nothing it finds is being saved. Nothing can be learned until that is set.'
+        : (scanLogs?.length
+            ? 'The daily scan is running, but no Golden Bull picks have been recorded in the last 60 days. Either the market gave none, or the scan is being cut short before it can save.'
+            : 'No scan runs have been logged in the last 6 days — the daily cron is either not firing or timing out before it finishes.');
+      console.warn('[scan/report] No HOF records —', note);
+      const sent = await sendEmail('Signalscan — pipeline needs attention (no picks recorded)', buildAlertEmail(diag, note));
+      return res.status(200).json({ message: 'No HOF records yet', note, diagnostics: diag, sent });
     }
 
     // Deduplicate to first detection per ticker (entry price = oldest record)
@@ -467,8 +517,17 @@ export default async function handler(req, res) {
     const sent    = await sendEmail(subject, html);
 
     return res.status(200).json({
-      message:          'Report complete — weights auto-updated, email sent',
+      message:          sent
+        ? `Report complete — ${weightResult.changes.length} weights auto-updated, email sent`
+        : `Report complete — ${weightResult.changes.length} weights auto-updated, but EMAIL FAILED (check RESEND_API_KEY and sender domain)`,
       sent,
+      diagnostics: {
+        hasServiceKey: !!SUPABASE_SERVICE,
+        hasResendKey:  !!RESEND_KEY,
+        hofRecords:    unique.length,
+        scanRuns:      scanLogs?.length || 0,
+        eligible:      weightResult.eligibleCount,
+      },
       winRate,
       avgReturn:        parseFloat(avgReturn.toFixed(2)),
       totalTracked:     unique.length,
