@@ -75,28 +75,71 @@ async function refreshCrumb() {
   } catch (_) {}
 }
 
-async function fetchCurrentPrices(symbols) {
+// One symbol via the v8 chart endpoint — no crumb required, and it is not
+// IP-blocked the way v7/quote is. Same endpoint the scanner and browser use.
+async function fetchOnePrice(symbol) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': UA, Accept: 'application/json' },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const json   = await res.json();
+    const result = json?.chart?.result?.[0];
+    const meta   = result?.meta?.regularMarketPrice;
+    if (meta) return meta;
+    const closes = (result?.indicators?.quote?.[0]?.close || []).filter(c => c != null);
+    return closes.length ? closes[closes.length - 1] : null;
+  } catch (_) { return null; }
+}
+
+async function fetchCurrentPrices(symbols, budgetMs = 6000) {
   if (!symbols.length) return {};
-  if (!_crumb || Date.now() - _crumbAt > 4 * 60 * 1000) await refreshCrumb();
-  // Yahoo quote API handles ~100 symbols at once — batch if larger
-  const batches = [];
-  for (let i = 0; i < symbols.length; i += 80) batches.push(symbols.slice(i, i + 80));
   const prices = {};
-  for (const batch of batches) {
+  const startMs = Date.now();
+
+  // Fast path: v7/quote returns everything in one or two calls when it works.
+  // It frequently 401s from serverless IPs, which silently produced a 0% win
+  // rate over 139 tracked picks — so anything it misses is filled in below.
+  if (!_crumb || Date.now() - _crumbAt > 4 * 60 * 1000) await refreshCrumb();
+  for (let i = 0; i < symbols.length; i += 80) {
+    const batch = symbols.slice(i, i + 80);
     try {
       const crumbParam = _crumb ? `&crumb=${encodeURIComponent(_crumb)}` : '';
       const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${batch.join(',')}&fields=regularMarketPrice${crumbParam}`;
       const res = await fetch(url, {
         headers: { 'User-Agent': UA, Accept: 'application/json', Referer: 'https://finance.yahoo.com/', ...(_cookie ? { Cookie: _cookie } : {}) },
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(6000),
       });
       if (!res.ok) continue;
-      const json   = await res.json();
-      const quotes = json.quoteResponse?.result || [];
-      for (const q of quotes) {
+      const json = await res.json();
+      for (const q of (json.quoteResponse?.result || [])) {
         if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
       }
     } catch (_) {}
+  }
+
+  // Fallback: fetch whatever is still missing individually, in parallel, until
+  // the time budget runs out. Partial outcome data still beats none.
+  const missing = symbols.filter(s => !prices[s]);
+  if (missing.length) {
+    console.log(`[scan/report] v7/quote covered ${symbols.length - missing.length}/${symbols.length} — filling ${missing.length} via v8/chart`);
+    let idx = 0;
+    const worker = async () => {
+      while (idx < missing.length) {
+        if (Date.now() - startMs > budgetMs) return;
+        const sym = missing[idx++];
+        const p = await fetchOnePrice(sym);
+        if (p) prices[sym] = p;
+      }
+    };
+    await Promise.all(Array.from({ length: 12 }, worker));
+  }
+
+  const got = Object.keys(prices).length;
+  if (got < symbols.length) {
+    console.warn(`[scan/report] priced ${got}/${symbols.length} tickers (time budget ${budgetMs}ms)`);
   }
   return prices;
 }

@@ -12,9 +12,11 @@ const SUPABASE_URL     = process.env.SUPABASE_URL     || 'https://bhykfnuljzzimz
 const SUPABASE_SERVICE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const CRON_SECRET      = process.env.CRON_SECRET;
 
-// vercel.json pins maxDuration to 60s for this route. Leave headroom so the
-// Supabase writes after the scan loop always get a chance to run.
-const SCAN_BUDGET_MS   = parseInt(process.env.SCAN_BUDGET_MS || '45000', 10);
+// Sized for the platform's DEFAULT function limit (10s on Hobby) rather than a
+// raised maxDuration, so this works without extra project config. The writes
+// happen after the scan loop, so the loop must yield well before the cutoff.
+// Raise SCAN_BUDGET_MS if the project's function limit is increased.
+const SCAN_BUDGET_MS   = parseInt(process.env.SCAN_BUDGET_MS || '7500', 10);
 const SCAN_CONCURRENCY = parseInt(process.env.SCAN_CONCURRENCY || '12', 10);
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
