@@ -74,6 +74,7 @@ const ADMIN_EMAIL = 'camilotapia75@gmail.com';
 // ── Scanner core ────────────────────────────────────────────────
 
 async function _runScanCore(tickers, ui, quickFn, recordFn, renderFn) {
+  await loadLearnedWeights();   // pick up whatever the 5-day report has learned
   const btn       = document.getElementById(ui.btnId);
   const progressEl = document.getElementById(ui.progressId);
   const gridEl    = document.getElementById(ui.gridId);
@@ -989,6 +990,66 @@ function _vwapScan(closes, volumes) {
   return cumV > 0 ? cumPV / cumV : null;
 }
 
+// ── Learned signal weights ───────────────────────────────────────────────────
+// The 5-day report retunes these from real outcomes. Without loading them here
+// the browser scanner would stay frozen at its original numbers forever and the
+// user would never actually see the algorithm improve.
+
+const SIGNAL_BASE = {
+  ema_full_stack: 3, ema_partial: 1, ema200_above: 2, rsi_momentum: 3,
+  rsi_dip: 1, macd_positive: 2, extension_healthy: 2, extension_over: -2,
+  obv_rising: 2, volume_expanding: 1, spy_outperform: 2, spy_underperform: -1,
+  bb_constructive: 1, bb_extended: -1,
+};
+let _learnedW = null, _learnedAt = 0;
+
+async function loadLearnedWeights() {
+  if (_learnedW && Date.now() - _learnedAt < 10 * 60 * 1000) return _learnedW;
+  const w = {};
+  try {
+    const sb = typeof getSupabase === 'function' ? getSupabase() : null;
+    if (sb) {
+      const { data } = await sb.from('signal_weights').select('signal_key,base_points');
+      for (const r of (data || [])) {
+        const v = parseFloat(r.base_points);
+        if (isFinite(v)) w[r.signal_key] = v;
+      }
+    }
+  } catch (_) { /* fall back to defaults */ }
+  _learnedW = w; _learnedAt = Date.now();
+  if (Object.keys(w).length) console.log(`[scanner] using ${Object.keys(w).length} learned signal weights`);
+  return w;
+}
+
+function _w(key) {
+  const v = _learnedW?.[key];
+  return (v !== undefined && isFinite(v)) ? v : (SIGNAL_BASE[key] ?? 0);
+}
+
+// Highest score a single ticker can actually reach. Several signals are
+// mutually exclusive (a stock is in the RSI momentum zone or the dip zone, not
+// both), so summing every positive weight overstates the ceiling and would
+// quietly make the scan stricter than intended.
+function _maxAchievableScore() {
+  const best = (a, b) => Math.max(_w(a), _w(b), 0);
+  return best('ema_full_stack', 'ema_partial')      // one or the other
+       + Math.max(0, _w('ema200_above'))
+       + best('rsi_momentum', 'rsi_dip')            // one or the other
+       + Math.max(0, _w('macd_positive'))
+       + Math.max(0, _w('extension_healthy'))       // the "over" case is a penalty
+       + Math.max(0, _w('obv_rising'))
+       + Math.max(0, _w('volume_expanding'))
+       + Math.max(0, _w('spy_outperform'))          // underperform is a penalty
+       + Math.max(0, _w('bb_constructive'));        // extended is a penalty
+}
+
+// Threshold tracks the weights rather than sitting at a fixed number, so the
+// scan stays equally selective as weights drift. With default weights this is
+// 18 * 0.56 ≈ 10 — identical to the previous hardcoded bar.
+function _scoreThreshold() {
+  return _maxAchievableScore() * 0.56;
+}
+
 // Runs the two analysis engines the Analyze tab uses and reports what they say.
 // Golden Bull requires BOTH bullish; Bull Pen requires exactly one (a setup that
 // is working but not yet confirmed). Without this, scoring alone lets nearly
@@ -1084,16 +1145,16 @@ async function quickAnalyzeForScan(ticker) {
 
   // EMA alignment — most important (3 pts for full stack, 1 pt partial)
   if (ema9 > ema21 && ema21 > ema50) {
-    score += 3;
+    score += _w('ema_full_stack');
     signals.push('Full EMA stack aligned (9 > 21 > 50) — confirmed uptrend');
   } else if (ema9 > ema21) {
-    score += 1;
+    score += _w('ema_partial');
     signals.push('EMA9 > EMA21 — short-term bullish momentum');
   }
 
   // Long-term structure: EMA200 (2 pts)
   if (ema200 && price > ema200) {
-    score += 2;
+    score += _w('ema200_above');
     signals.push(`Above EMA200 ($${ema200.toFixed(2)}) — long-term bull market structure`);
   }
 
@@ -1101,26 +1162,26 @@ async function quickAnalyzeForScan(ticker) {
   // 65–76: allowed by gate but no reward (0 pts)
   // 38–48: dip zone, partial credit (1 pt)
   if (rsi >= 48 && rsi <= 65) {
-    score += 3;
+    score += _w('rsi_momentum');
     signals.push(`RSI ${rsi.toFixed(0)} — momentum zone, upside room intact`);
   } else if (rsi >= 38 && rsi < 48) {
-    score += 1;
+    score += _w('rsi_dip');
     signals.push(`RSI ${rsi.toFixed(0)} — pulling back into support zone`);
   }
 
   // MACD: EMA12 > EMA26 = short-term momentum positive (2 pts)
   if (macd && macd > 0) {
-    score += 2;
+    score += _w('macd_positive');
     signals.push('MACD positive — bull momentum building');
   }
 
   // Extension from EMA50: healthy ≤15% (+2 pts), overextended >25% (−2 pts)
   const extPct = (price - ema50) / ema50 * 100;
   if (extPct <= 15) {
-    score += 2;
+    score += _w('extension_healthy');
     signals.push(`${extPct.toFixed(1)}% above EMA50 — healthy, room to extend`);
   } else if (extPct > 25) {
-    score -= 2;
+    score += _w('extension_over');
     signals.push(`${extPct.toFixed(1)}% above EMA50 — overextended, high reversal risk`);
   }
 
@@ -1128,7 +1189,7 @@ async function quickAnalyzeForScan(ticker) {
   if (obv.length >= 10) {
     const o = obv.slice(-10);
     if (o[o.length - 1] > o[0]) {
-      score += 2;
+      score += _w('obv_rising');
       signals.push('OBV rising 10-day — sustained institutional accumulation');
     }
   }
@@ -1138,7 +1199,7 @@ async function quickAnalyzeForScan(ticker) {
     const recentVol = volumes.slice(-5).reduce((a, b) => a + (b || 0), 0) / 5;
     const avgVol    = volumes.slice(-25, -5).reduce((a, b) => a + (b || 0), 0) / 20;
     if (avgVol > 0 && recentVol > avgVol * 1.15) {
-      score += 1;
+      score += _w('volume_expanding');
       signals.push('Volume expanding above 20-day average — participation growing');
     }
   }
@@ -1153,10 +1214,10 @@ async function quickAnalyzeForScan(ticker) {
         ? (closes[closes.length - 1] - closes[closes.length - 20]) / closes[closes.length - 20] * 100
         : null;
       if (tkrRet !== null && tkrRet > spyRet + 3) {
-        score += 2;
+        score += _w('spy_outperform');
         signals.push(`Outperforming SPY by ${(tkrRet - spyRet).toFixed(1)}% over 20 days`);
       } else if (tkrRet !== null && tkrRet < spyRet - 5) {
-        score -= 1;
+        score += _w('spy_underperform');
         signals.push('Underperforming SPY — relative weakness');
       }
     }
@@ -1164,18 +1225,19 @@ async function quickAnalyzeForScan(ticker) {
 
   // Bollinger position: between mean and upper = constructive (1 pt); above upper = short-term extended (−1 pt)
   if (price > bb.mean && price < bb.upper) {
-    score += 1;
+    score += _w('bb_constructive');
     signals.push('Between BB mean and upper band — constructive trend position');
   } else if (price > bb.upper) {
-    score -= 1;
+    score += _w('bb_extended');
     signals.push('Above BB upper band — short-term overextended');
   }
 
   // Max possible score ≈ 18 (3+2+3+2+2+2+1+2+1)
   // Golden Bull = strength (score ≥10) AND both engines agree bullish
   const bias         = _engineBias(ticker, closes, highs, lows, volumes, price);
-  const isGoldenBull = bias.dualAgree && score >= 10;
-  const conviction   = Math.min(100, Math.max(0, Math.round(score / 18 * 100)));
+  const thr          = _scoreThreshold();
+  const isGoldenBull = bias.dualAgree && score >= thr;
+  const conviction   = Math.min(100, Math.max(0, Math.round(score / _maxAchievableScore() * 100)));
 
   return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
 }

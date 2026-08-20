@@ -221,6 +221,16 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
   const changes  = [];
   const upserts  = [];
 
+  // Baselines across every eligible pick, used to measure a signal against the
+  // picks it did NOT fire on. Judging a signal on its own absolute return just
+  // tracks the market: in a good month every signal looks brilliant and every
+  // weight inflates, including signals that fire on everything and predict
+  // nothing. Edge over the rest of the field is what actually carries
+  // information, so that is what drives the weights.
+  const totalAll = eligible.reduce((a, r) => a + r.pct, 0);
+  const winsAll  = eligible.filter(r => r.pct >= 5).length;
+  const countAll = eligible.length;
+
   for (const [key, s] of Object.entries(stats)) {
     if (s.count < 5) continue; // need min 5 data points per signal
 
@@ -232,9 +242,18 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
     const winRate   = s.wins / s.count;
     const avgReturn = s.totalReturn / s.count;
 
-    // Effectiveness score: win rate above 50% = positive, avg return above 0 = positive
-    // Range roughly -2 to +2; positive means signal is good predictor
-    const effectiveness = (winRate - 0.5) * 1.5 + (avgReturn / 25);
+    // Comparison group: eligible picks where this signal did NOT fire.
+    const outCount = countAll - s.count;
+    let effectiveness = 0, edge = 0, winEdge = 0;
+    if (outCount >= 3) {
+      const outAvg     = (totalAll - s.totalReturn) / outCount;
+      const outWinRate = (winsAll - s.wins) / outCount;
+      edge    = avgReturn - outAvg;   // percentage points of outperformance
+      winEdge = winRate - outWinRate;
+      effectiveness = winEdge * 1.5 + (edge / 25);
+    }
+    // outCount < 3 means the signal fired on essentially everything, so there is
+    // nothing to compare it against — leave its weight alone rather than guess.
 
     // Conservative learning rate (8%), scales with evidence strength (caps at 20 samples)
     const evidenceStrength = Math.min(1.0, s.count / 20);
@@ -255,6 +274,7 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
         delta:     parseFloat(delta.toFixed(2)),
         winRate:   Math.round(winRate * 100),
         avgReturn: parseFloat(avgReturn.toFixed(1)),
+        edge:      parseFloat(edge.toFixed(1)),
         count:     s.count,
         direction: delta > 0 ? 'up' : 'down',
       });
