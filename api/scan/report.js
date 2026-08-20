@@ -536,7 +536,17 @@ export default async function handler(req, res) {
       changes:          weightResult.changes,
     });
   } catch (e) {
+    // A crash here (bad Supabase read, missing column, RLS block) used to end in
+    // a 500 nobody would ever see. Report it the same way as any other outcome.
     console.error('[scan/report] error:', e.message);
-    return res.status(500).json({ error: e.message });
+    const sent = await sendEmail(
+      'Signalscan — report job FAILED',
+      buildAlertEmail(
+        { hasServiceKey: !!SUPABASE_SERVICE, hasResendKey: !!RESEND_KEY,
+          hofRecords: 0, scanRuns: 0, eligible: 0 },
+        `The report job threw an error and could not complete: <code>${e.message}</code>`
+      )
+    ).catch(() => false);
+    return res.status(500).json({ error: e.message, sent });
   }
 }
