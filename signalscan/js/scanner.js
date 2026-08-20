@@ -105,7 +105,7 @@ async function _runScanCore(tickers, ui, quickFn, recordFn, renderFn) {
         const r  = await fn(ticker);
         if (r?.isGoldenBull) {
           bulls.push(r);
-          if (gridEl) gridEl.insertAdjacentHTML('beforeend', renderScanCard(r));
+          if (gridEl) gridEl.insertAdjacentHTML('beforeend', renderScanCard(r, ui.cardTag));
         }
       } catch (_) {}
       done++;
@@ -120,7 +120,8 @@ async function _runScanCore(tickers, ui, quickFn, recordFn, renderFn) {
 
   if (progressEl) progressEl.style.display = 'none';
   if (headerEl)  headerEl.style.display   = 'block';
-  if (foundMsgEl) foundMsgEl.textContent  = `${bulls.length} GOLDEN BULL${bulls.length !== 1 ? 'S' : ''} FOUND`;
+  const noun = ui.foundNoun || 'GOLDEN BULL';
+  if (foundMsgEl) foundMsgEl.textContent  = `${bulls.length} ${noun}${bulls.length !== 1 ? 'S' : ''} FOUND`;
   if (emptyEl)   emptyEl.style.display    = bulls.length ? 'none' : 'block';
   if (btn) { btn.disabled = false; btn.textContent = ui.btnLabel; }
 
@@ -200,7 +201,8 @@ function runCustomScanner() {
   }, null, (bulls) => hofRecord(bulls, 'watchlist'), null);
 }
 
-function renderScanCard(r) {
+function renderScanCard(r, label) {
+  const tag = label || { text: '⚡ GOLDEN BULL', color: '#00ff88' };
   return `<div class="scan-card" onclick="loadTickerAndAnalyze('${r.ticker}')" style="cursor:pointer;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <span style="font-weight:700;font-size:1.1em;">${r.ticker}</span>
@@ -208,7 +210,7 @@ function renderScanCard(r) {
     </div>
     <div class="scan-card-bar"></div>
     <div style="font-size:0.8em;margin-bottom:${r.topSignal ? '8px' : '0'};">
-      <span style="color:#00ff88;font-weight:600;">⚡ GOLDEN BULL</span>
+      <span style="color:${tag.color};font-weight:600;">${tag.text}</span>
     </div>
     ${r.topSignal ? `<div style="font-size:0.75em;color:#bbb;line-height:1.4;">${r.topSignal.substring(0, 90)}${r.topSignal.length > 90 ? '…' : ''}</div>` : ''}
   </div>`;
@@ -987,6 +989,57 @@ function _vwapScan(closes, volumes) {
   return cumV > 0 ? cumPV / cumV : null;
 }
 
+// Runs the two analysis engines the Analyze tab uses and reports what they say.
+// Golden Bull requires BOTH bullish; Bull Pen requires exactly one (a setup that
+// is working but not yet confirmed). Without this, scoring alone lets nearly
+// every stock in an uptrend through.
+function _engineBias(ticker, closes, highs, lows, volumes, price) {
+  const none = { rev: null, cont: null, dualAgree: false, oneBullish: false, bullScore: 0 };
+  try {
+    if (!highs || !lows || highs.length < 30 || lows.length < 30) return none;
+    const e20a = calcEMA(closes, 20), e50a = calcEMA(closes, 50);
+    const vol20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+    const indData = {
+      rsi:   calcRSI(closes),
+      macd:  calcMACD(closes),
+      bb:    calcBollinger(closes),
+      stoch: calcStochastic(highs, lows, closes),
+      atr:   calcATR(highs, lows, closes),
+      obv:   calcOBV(closes, volumes),
+      volRatio: vol20 > 0 ? volumes[volumes.length - 1] / vol20 : 1,
+      ema20: e20a[e20a.length - 1],
+      ema50: e50a[e50a.length - 1],
+      lastClose: price,
+    };
+    const sr   = findSupportResistance(highs, lows, closes);
+    const pa   = analyzePriceAction({ closes, highs, lows, volumes });
+    const rev  = generateAnalysis(ticker, indData, sr, pa);
+    const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
+    const rb = rev.bias === 'BULLISH', cb = cont.bias === 'BULLISH';
+    // How strongly the bullish engine reads. The engines flip to BULLISH at only
+    // ~0.2, so a bare bias flag is a weak signal on its own.
+    const bullScore = Math.max(rb ? rev.score : -Infinity, cb ? cont.score : -Infinity);
+    return {
+      rev, cont,
+      dualAgree:  rb && cb,
+      oneBullish: (rb || cb) && !(rb && cb),
+      bullScore:  isFinite(bullScore) ? bullScore : 0,
+    };
+  } catch (_) { return none; }
+}
+
+// Drops null bars while keeping close/volume/high/low index-aligned.
+function _cleanBars(data) {
+  const okIdx = [];
+  (data.closes || []).forEach((c, i) => { if (c != null) okIdx.push(i); });
+  return {
+    closes:  okIdx.map(i => data.closes[i]),
+    volumes: okIdx.map(i => (data.volumes || [])[i] || 0),
+    highs:   okIdx.map(i => (data.highs || [])[i] ?? data.closes[i]),
+    lows:    okIdx.map(i => (data.lows  || [])[i] ?? data.closes[i]),
+  };
+}
+
 async function quickAnalyzeForScan(ticker) {
   const [tfInterval, tfRange] = getScanTimeframe().split('|');
   const data = await _fetchScanData(ticker, tfRange === '1y' ? '1y' : '6mo|3mo', tfInterval);
@@ -1118,38 +1171,10 @@ async function quickAnalyzeForScan(ticker) {
     signals.push('Above BB upper band — short-term overextended');
   }
 
-  // ── Dual-engine agreement — the Golden Bull contract ─────────
-  // A Golden Bull is a stock where the REVERSAL engine and the
-  // CONTINUATION engine independently both read BULLISH. The weighted
-  // score above measures strength; this measures agreement. Both required.
-  let dualAgree = false;
-  try {
-    if (highs.length >= 30 && lows.length >= 30) {
-      const e20a = calcEMA(closes, 20), e50a = calcEMA(closes, 50);
-      const vol20 = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-      const indData = {
-        rsi:   calcRSI(closes),
-        macd:  calcMACD(closes),
-        bb:    calcBollinger(closes),
-        stoch: calcStochastic(highs, lows, closes),
-        atr:   calcATR(highs, lows, closes),
-        obv:   calcOBV(closes, volumes),
-        volRatio: vol20 > 0 ? volumes[volumes.length - 1] / vol20 : 1,
-        ema20: e20a[e20a.length - 1],
-        ema50: e50a[e50a.length - 1],
-        lastClose: price,
-      };
-      const sr   = findSupportResistance(highs, lows, closes);
-      const pa   = analyzePriceAction({ closes, highs, lows, volumes });
-      const rev  = generateAnalysis(ticker, indData, sr, pa);
-      const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
-      dualAgree = rev.bias === 'BULLISH' && cont.bias === 'BULLISH';
-    }
-  } catch (_) { dualAgree = false; }
-
   // Max possible score ≈ 18 (3+2+3+2+2+2+1+2+1)
   // Golden Bull = strength (score ≥10) AND both engines agree bullish
-  const isGoldenBull = dualAgree && score >= 10;
+  const bias         = _engineBias(ticker, closes, highs, lows, volumes, price);
+  const isGoldenBull = bias.dualAgree && score >= 10;
   const conviction   = Math.min(100, Math.max(0, Math.round(score / 18 * 100)));
 
   return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
@@ -1158,7 +1183,7 @@ async function quickAnalyzeForScan(ticker) {
 async function quickAnalyzeForScanV2(ticker) {
   const data = await _fetchScanData(ticker, '6mo|3mo');
   if (!data) return null;
-  const { closes, volumes } = data;
+  const { closes, volumes, highs, lows } = _cleanBars(data);
   if (closes.length < 50) return null;
 
   const price = closes[closes.length - 1];
@@ -1263,8 +1288,14 @@ async function quickAnalyzeForScanV2(ticker) {
     score -= 1;
   }
 
-  // Bull Pen threshold is slightly lower (≥8 vs ≥10) — catches earlier-stage setups
-  const isGoldenBull = score >= 8;
+  // The Bull Pen is a staging area, NOT a looser Golden Bull scan. A candidate
+  // belongs here when it has real strength (score ≥10) and exactly ONE engine
+  // reads bullish — the setup is working but unconfirmed. Once the second engine
+  // agrees it graduates to Golden Bull and leaves the pen, so the two lists never
+  // overlap. Score alone (the old ≥8 rule) let through nearly everything that
+  // cleared the gates, which is why the pen was returning the whole universe.
+  const bias         = _engineBias(ticker, closes, highs, lows, volumes, price);
+  const isGoldenBull = bias.oneBullish && bias.bullScore >= 0.35 && score >= 10;
   const conviction   = Math.min(100, Math.max(0, Math.round(score / 18 * 100)));
 
   return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
@@ -1452,6 +1483,8 @@ function runBullPenScanner() {
     emptyId: 'bpEmpty',              headerId: 'bpResultsHeader',        foundMsgId: 'bpFoundMsg',
     statusId: 'bpStatusText',        countId: 'bpProgressCount',         barId: 'bpProgressBar',
     btnLabel: '🔍 SCAN AGAIN',
+    foundNoun: 'BULL PEN CANDIDATE',
+    cardTag: { text: '🧪 BULL PEN — 1 of 2 engines confirmed', color: '#ff9055' },
   }, quickAnalyzeForScanV2, hofRecordBullPen, renderBullPenHoF);
 }
 

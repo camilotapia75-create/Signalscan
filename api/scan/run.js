@@ -300,9 +300,17 @@ async function analyzeTickerBoth(ticker, spyCloses, weights) {
     };
   };
 
+  // Bull Pen is a staging area, not a lower bar: same strength requirement,
+  // evaluated under the looser overbought gate, minus anything that already
+  // qualifies as a Golden Bull. The old threshold*0.7 (≈39% of max) admitted
+  // essentially every ticker that cleared the hard gates.
+  const goldenEntry = toEntry(gbRes, threshold);
+  const bpEntry     = toEntry(bpRes, threshold);
+  if (bpEntry && goldenEntry?.qualifies) bpEntry.qualifies = false;
+
   return {
-    golden:  toEntry(gbRes, threshold),
-    bullpen: toEntry(bpRes, threshold * 0.7),
+    golden:  goldenEntry,
+    bullpen: bpEntry,
   };
 }
 
