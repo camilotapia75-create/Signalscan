@@ -478,7 +478,11 @@ function buildAlertEmail(diag, note) {
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 
+const BUILD = (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7);
+
 export default async function handler(req, res) {
+  // Never let an edge or browser cache serve a stale run of this job.
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   if (CRON_SECRET) {
     const auth = req.headers['authorization'];
     if (!auth || auth !== `Bearer ${CRON_SECRET}`) {
@@ -512,7 +516,7 @@ export default async function handler(req, res) {
             : 'No scan runs have been logged in the last 6 days — the daily cron is either not firing or timing out before it finishes.');
       console.warn('[scan/report] No HOF records —', note);
       const sent = await sendEmail('Signalscan — pipeline needs attention (no picks recorded)', buildAlertEmail(diag, note));
-      return res.status(200).json({ message: 'No HOF records yet', note, diagnostics: diag, sent });
+      return res.status(200).json({ build: BUILD, message: 'No HOF records yet', note, diagnostics: diag, sent });
     }
 
     // Deduplicate to first detection per ticker (entry price = oldest record)
@@ -560,6 +564,7 @@ export default async function handler(req, res) {
     const sent    = await sendEmail(subject, html);
 
     return res.status(200).json({
+      build:            BUILD,
       message:          sent
         ? `Report complete — ${weightResult.changes.length} weights auto-updated, email sent`
         : `Report complete — ${weightResult.changes.length} weights auto-updated, but EMAIL FAILED (check RESEND_API_KEY and sender domain)`,
@@ -590,6 +595,6 @@ export default async function handler(req, res) {
         `The report job threw an error and could not complete: <code>${e.message}</code>`
       )
     ).catch(() => false);
-    return res.status(500).json({ error: e.message, sent });
+    return res.status(500).json({ build: BUILD, error: e.message, sent });
   }
 }

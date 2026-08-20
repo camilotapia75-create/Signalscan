@@ -419,6 +419,7 @@ const ROTATION_POOL = [
 // ── Handler ──────────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
   if (CRON_SECRET) {
     const auth = req.headers['authorization'];
     if (!auth || auth !== `Bearer ${CRON_SECRET}`) {
@@ -473,6 +474,7 @@ export default async function handler(req, res) {
   const ms    = Date.now() - startMs;
 
   const summary = {
+    build:       (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7),
     scanned:     analyzed,
     universe:    tickers.length,
     truncated,
