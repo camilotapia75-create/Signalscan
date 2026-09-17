@@ -18,6 +18,12 @@ const RESEND_KEY       = process.env.RESEND_API_KEY;
 const REPORT_TO        = process.env.REPORT_TO_EMAIL || 'camilotapia75@gmail.com';
 const REPORT_FROM      = process.env.REPORT_FROM_EMAIL || 'Signalscan <reports@signalscan.io>';
 
+// Learning guardrails
+const MIN_SAMPLES   = 15;     // per signal, and per comparison group
+const WEIGHT_DECAY  = 0.03;   // pull toward default each cycle
+const HORIZON_DAYS  = 14;     // fixed holding period for cohort scoring
+const WIN_THRESHOLD = 0;      // a "win" = beat the market over the same window
+
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 let _crumb = '', _cookie = '', _crumbAt = 0;
 
@@ -75,11 +81,13 @@ async function refreshCrumb() {
   } catch (_) {}
 }
 
-// One symbol via the v8 chart endpoint — no crumb required, and it is not
-// IP-blocked the way v7/quote is. Same endpoint the scanner and browser use.
-async function fetchOnePrice(symbol) {
+// A ticker's daily closes via the v8 chart endpoint — no crumb required, and it
+// is not IP-blocked the way v7/quote is. Returning the whole series rather than
+// just the last price costs nothing extra and is what makes benchmarking and
+// fixed-horizon cohorts possible.
+async function fetchOneSeries(symbol) {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=5d`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=3mo`;
     const res = await fetch(url, {
       headers: { 'User-Agent': UA, Accept: 'application/json' },
       signal: AbortSignal.timeout(6000),
@@ -87,61 +95,169 @@ async function fetchOnePrice(symbol) {
     if (!res.ok) return null;
     const json   = await res.json();
     const result = json?.chart?.result?.[0];
-    const meta   = result?.meta?.regularMarketPrice;
-    if (meta) return meta;
-    const closes = (result?.indicators?.quote?.[0]?.close || []).filter(c => c != null);
-    return closes.length ? closes[closes.length - 1] : null;
+    const rawTs  = result?.timestamp || [];
+    const rawCl  = result?.indicators?.quote?.[0]?.close || [];
+    const ts = [], closes = [];
+    for (let i = 0; i < rawTs.length; i++) {
+      if (rawCl[i] != null) { ts.push(rawTs[i]); closes.push(rawCl[i]); }
+    }
+    if (!closes.length) return null;
+    return { ts, closes };
   } catch (_) { return null; }
 }
 
-async function fetchCurrentPrices(symbols, budgetMs = 6000) {
-  if (!symbols.length) return {};
-  const prices = {};
+async function fetchSeries(symbols, budgetMs = 6000) {
+  const out = {};
+  if (!symbols.length) return out;
   const startMs = Date.now();
-
-  // Fast path: v7/quote returns everything in one or two calls when it works.
-  // It frequently 401s from serverless IPs, which silently produced a 0% win
-  // rate over 139 tracked picks — so anything it misses is filled in below.
-  if (!_crumb || Date.now() - _crumbAt > 4 * 60 * 1000) await refreshCrumb();
-  for (let i = 0; i < symbols.length; i += 80) {
-    const batch = symbols.slice(i, i + 80);
-    try {
-      const crumbParam = _crumb ? `&crumb=${encodeURIComponent(_crumb)}` : '';
-      const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${batch.join(',')}&fields=regularMarketPrice${crumbParam}`;
-      const res = await fetch(url, {
-        headers: { 'User-Agent': UA, Accept: 'application/json', Referer: 'https://finance.yahoo.com/', ...(_cookie ? { Cookie: _cookie } : {}) },
-        signal: AbortSignal.timeout(6000),
-      });
-      if (!res.ok) continue;
-      const json = await res.json();
-      for (const q of (json.quoteResponse?.result || [])) {
-        if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
-      }
-    } catch (_) {}
-  }
-
-  // Fallback: fetch whatever is still missing individually, in parallel, until
-  // the time budget runs out. Partial outcome data still beats none.
-  const missing = symbols.filter(s => !prices[s]);
-  if (missing.length) {
-    console.log(`[scan/report] v7/quote covered ${symbols.length - missing.length}/${symbols.length} — filling ${missing.length} via v8/chart`);
-    let idx = 0;
-    const worker = async () => {
-      while (idx < missing.length) {
-        if (Date.now() - startMs > budgetMs) return;
-        const sym = missing[idx++];
-        const p = await fetchOnePrice(sym);
-        if (p) prices[sym] = p;
-      }
-    };
-    await Promise.all(Array.from({ length: 12 }, worker));
-  }
-
-  const got = Object.keys(prices).length;
+  let idx = 0;
+  const worker = async () => {
+    while (idx < symbols.length) {
+      if (Date.now() - startMs > budgetMs) return;
+      const sym = symbols[idx++];
+      const s = await fetchOneSeries(sym);
+      if (s) out[sym] = s;
+    }
+  };
+  await Promise.all(Array.from({ length: 12 }, worker));
+  const got = Object.keys(out).length;
   if (got < symbols.length) {
-    console.warn(`[scan/report] priced ${got}/${symbols.length} tickers (time budget ${budgetMs}ms)`);
+    console.warn(`[scan/report] priced ${got}/${symbols.length} tickers (budget ${budgetMs}ms)`);
   }
-  return prices;
+  return out;
+}
+
+// Last close at or before a moment. Picks are detected intraday and markets
+// close on weekends, so an exact date match would miss most of the time.
+function closeAt(series, epochSec) {
+  if (!series?.ts?.length) return null;
+  let lo = 0, hi = series.ts.length - 1, best = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (series.ts[mid] <= epochSec) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  return best >= 0 ? series.closes[best] : null;
+}
+
+function lastClose(series) {
+  return series?.closes?.length ? series.closes[series.closes.length - 1] : null;
+}
+
+const pctChange = (from, to) =>
+  (from && to && isFinite(from) && isFinite(to)) ? (to - from) / from * 100 : null;
+
+// ── Mock portfolio ───────────────────────────────────────────────────────────
+// Replays every Golden Bull the scanner recorded as if a fixed amount had been
+// invested in each and held for a fixed number of days, under real capital
+// constraints. Deliberately mechanical — the published entry price, the same
+// holding period on every trade, no discretion and no hindsight. That is what
+// makes it comparable to putting identical cash into the S&P over identical
+// days, and what would let the same rules drive real orders later.
+//
+// Assumptions (they flatter the result, so read it accordingly): fills at the
+// recorded signal price and at the closing price on the exit date, no
+// commissions, no slippage, no dividends, no taxes.
+
+const PORTFOLIO_START = 10000;   // starting capital
+const PORTFOLIO_SLOTS = 10;      // max concurrent positions -> $1,000 per trade
+
+function simulatePortfolio(picks, series, spy) {
+  const DAY = 86400;
+  const positionSize = PORTFOLIO_START / PORTFOLIO_SLOTS;
+  const nowSec  = Math.floor(Date.now() / 1000);
+  const holdSec = HORIZON_DAYS * DAY;
+
+  const valid = picks
+    .filter(p => series[p.ticker] && parseFloat(p.signal_price) > 0 && p.detSec)
+    .sort((a, b) => a.detSec - b.detSec);
+  if (!valid.length) return null;
+
+  const startDay = Math.floor(valid[0].detSec / DAY) * DAY;
+  const endDay   = Math.floor(nowSec / DAY) * DAY;
+
+  let cash = PORTFOLIO_START;
+  const open = [];        // { ticker, shares, entry, exitSec }
+  const closed = [];
+  const curve  = [];      // daily { t, equity }
+  let skipped = 0, pi = 0;
+
+  for (let d = startDay; d <= endDay; d += DAY) {
+    // Settle anything that has reached the end of its holding period
+    for (let i = open.length - 1; i >= 0; i--) {
+      const o  = open[i];
+      if (o.exitSec > d) continue;
+      const px = closeAt(series[o.ticker], o.exitSec) ?? closeAt(series[o.ticker], d) ?? o.entry;
+      cash += o.shares * px;
+      closed.push({ ticker: o.ticker, ret: (px - o.entry) / o.entry });
+      open.splice(i, 1);
+    }
+
+    // Enter any Golden Bulls detected on this day, capital permitting
+    while (pi < valid.length && valid[pi].detSec < d + DAY) {
+      const p = valid[pi++];
+      const entry = parseFloat(p.signal_price);
+      // No free capital means the signal is genuinely missed. Taking it anyway
+      // would model a portfolio with unlimited money, which is not a portfolio.
+      if (cash + 1e-9 < positionSize) { skipped++; continue; }
+      cash -= positionSize;
+      open.push({ ticker: p.ticker, shares: positionSize / entry, entry, exitSec: p.detSec + holdSec });
+    }
+
+    // Mark open positions to that day's close
+    let mv = 0;
+    for (const o of open) mv += o.shares * (closeAt(series[o.ticker], d) ?? o.entry);
+    curve.push({ t: d, equity: cash + mv });
+  }
+
+  const equity     = curve[curve.length - 1].equity;
+  const totalEarned = equity - PORTFOLIO_START;
+
+  // Day-over-day change in account value — what the account actually made or
+  // lost each day, including open positions moving.
+  const daily = [];
+  for (let i = 1; i < curve.length; i++) {
+    daily.push({ t: curve[i].t, pnl: curve[i].equity - curve[i - 1].equity });
+  }
+  // Days with no open position are flat, not losing days — counting them would
+  // make an idle account look like a losing one.
+  const active  = daily.filter(x => Math.abs(x.pnl) > 0.005);
+  const upDays  = active.filter(x => x.pnl > 0).length;
+  const sortedD = [...daily].sort((a, b) => b.pnl - a.pnl);
+  const avgDaily = daily.length ? daily.reduce((a, x) => a + x.pnl, 0) / daily.length : 0;
+
+  // Simplest honest benchmark: the same money in the index over the same span.
+  const spyStart = spy ? closeAt(spy, startDay) : null;
+  const spyEnd   = spy ? lastClose(spy) : null;
+  const spyEquity = (spyStart && spyEnd) ? PORTFOLIO_START * (spyEnd / spyStart) : null;
+
+  const wins   = closed.filter(t => t.ret > 0).length;
+  const byRet  = [...closed].sort((a, b) => b.ret - a.ret);
+  const fmtDay = t => new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  return {
+    start:         PORTFOLIO_START,
+    equity:        parseFloat(equity.toFixed(2)),
+    totalEarned:   parseFloat(totalEarned.toFixed(2)),
+    totalReturn:   parseFloat((totalEarned / PORTFOLIO_START * 100).toFixed(2)),
+    spyEquity:     spyEquity === null ? null : parseFloat(spyEquity.toFixed(2)),
+    spyEarned:     spyEquity === null ? null : parseFloat((spyEquity - PORTFOLIO_START).toFixed(2)),
+    days:          daily.length,
+    avgDaily:      parseFloat(avgDaily.toFixed(2)),
+    upDayRate:     active.length ? Math.round(upDays / active.length * 100) : 0,
+    activeDays:    active.length,
+    slots:         PORTFOLIO_SLOTS,
+    bestDay:       sortedD[0] ? { date: fmtDay(sortedD[0].t), pnl: parseFloat(sortedD[0].pnl.toFixed(2)) } : null,
+    worstDay:      sortedD.length ? { date: fmtDay(sortedD[sortedD.length - 1].t), pnl: parseFloat(sortedD[sortedD.length - 1].pnl.toFixed(2)) } : null,
+    recentDaily:   daily.slice(-10).reverse().map(x => ({ date: fmtDay(x.t), pnl: parseFloat(x.pnl.toFixed(2)) })),
+    tradesClosed:  closed.length,
+    openPositions: open.length,
+    skipped,
+    winRate:       closed.length ? Math.round(wins / closed.length * 100) : 0,
+    positionSize,
+    holdDays:      HORIZON_DAYS,
+    best:          byRet[0] ? { ticker: byRet[0].ticker, pct: parseFloat((byRet[0].ret * 100).toFixed(1)) } : null,
+    worst:         byRet.length ? { ticker: byRet[byRet.length - 1].ticker, pct: parseFloat((byRet[byRet.length - 1].ret * 100).toFixed(1)) } : null,
+  };
 }
 
 // ── Supabase reads ────────────────────────────────────────────────────────────
@@ -191,16 +307,18 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
   //   a) signal_keys are recorded (new-style entries from updated scanner)
   //   b) outcome is known (price fetched successfully)
   //   c) pick is at least 7 days old (give it time to move)
-  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const eligible = hofWithOutcomes.filter(r =>
-    Array.isArray(r.signal_keys) && r.signal_keys.length > 0 &&
-    r.pct !== null && r.pct !== undefined &&
-    new Date(r.detected_at).getTime() < sevenDaysAgo
-  );
+  // Outcome used for learning is the fixed-horizon, market-adjusted result:
+  // what the pick did over its first HORIZON_DAYS relative to SPY over exactly
+  // the same days. Raw mark-to-market would let a rising or falling market move
+  // every weight at once, and would score old and new picks over different
+  // lengths of time.
+  const eligible = hofWithOutcomes
+    .filter(r => Array.isArray(r.signal_keys) && r.signal_keys.length > 0 && r.maturedAlpha != null)
+    .map(r => ({ ...r, outcome: r.maturedAlpha }));
 
-  if (eligible.length < 5) {
-    console.log(`[scan/report] Only ${eligible.length} eligible records for weight update (need 5+) — skipping`);
-    return { changes: [], eligibleCount: eligible.length };
+  if (eligible.length < MIN_SAMPLES * 2) {
+    console.log(`[scan/report] Only ${eligible.length} matured outcomes (need ${MIN_SAMPLES * 2}+) — skipping weight update`);
+    return { changes: [], eligibleCount: eligible.length, skipped: 'not enough matured outcomes' };
   }
 
   console.log(`[scan/report] Running weight analysis on ${eligible.length} outcomes`);
@@ -211,10 +329,10 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
     for (const key of record.signal_keys) {
       if (!stats[key]) stats[key] = { wins: 0, losses: 0, totalReturn: 0, count: 0, returns: [] };
       stats[key].count++;
-      stats[key].totalReturn += record.pct;
-      stats[key].returns.push(record.pct);
-      if (record.pct >= 5)  stats[key].wins++;
-      if (record.pct <= -5) stats[key].losses++;
+      stats[key].totalReturn += record.outcome;
+      stats[key].returns.push(record.outcome);
+      if (record.outcome >  WIN_THRESHOLD) stats[key].wins++;
+      if (record.outcome < -WIN_THRESHOLD) stats[key].losses++;
     }
   }
 
@@ -227,12 +345,15 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
   // weight inflates, including signals that fire on everything and predict
   // nothing. Edge over the rest of the field is what actually carries
   // information, so that is what drives the weights.
-  const totalAll = eligible.reduce((a, r) => a + r.pct, 0);
-  const winsAll  = eligible.filter(r => r.pct >= 5).length;
+  const totalAll = eligible.reduce((a, r) => a + r.outcome, 0);
+  const winsAll  = eligible.filter(r => r.outcome > WIN_THRESHOLD).length;
   const countAll = eligible.length;
 
   for (const [key, s] of Object.entries(stats)) {
-    if (s.count < 5) continue; // need min 5 data points per signal
+    // 15, not 5. At single-digit sample counts the edge estimate is mostly
+    // noise, and a weight nudged every 5 days by noise random-walks away from
+    // its default instead of converging on anything.
+    if (s.count < MIN_SAMPLES) continue;
 
     const current     = currentWeights[key];
     const currentPts  = current?.base_points !== undefined
@@ -244,24 +365,43 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
 
     // Comparison group: eligible picks where this signal did NOT fire.
     const outCount = countAll - s.count;
-    let effectiveness = 0, edge = 0, winEdge = 0;
-    if (outCount >= 3) {
-      const outAvg     = (totalAll - s.totalReturn) / outCount;
+    let effectiveness = 0, edge = 0, winEdge = 0, significant = false;
+    if (outCount >= MIN_SAMPLES) {
+      const outReturns = [];
+      for (const r of eligible) if (!r.signal_keys.includes(key)) outReturns.push(r.outcome);
+      const outAvg     = outReturns.reduce((a, b) => a + b, 0) / outCount;
       const outWinRate = (winsAll - s.wins) / outCount;
       edge    = avgReturn - outAvg;   // percentage points of outperformance
       winEdge = winRate - outWinRate;
-      effectiveness = winEdge * 1.5 + (edge / 25);
-    }
-    // outCount < 3 means the signal fired on essentially everything, so there is
-    // nothing to compare it against — leave its weight alone rather than guess.
 
-    // Conservative learning rate (8%), scales with evidence strength (caps at 20 samples)
-    const evidenceStrength = Math.min(1.0, s.count / 20);
+      // Is that edge bigger than the spread in the data would produce by chance?
+      // Standard error of the difference between two means; require the edge to
+      // clear it before moving any weight.
+      const variance = arr => {
+        if (arr.length < 2) return 0;
+        const m = arr.reduce((a, b) => a + b, 0) / arr.length;
+        return arr.reduce((a, b) => a + (b - m) ** 2, 0) / (arr.length - 1);
+      };
+      const se = Math.sqrt(variance(s.returns) / s.count + variance(outReturns) / outCount);
+      significant = se > 0 ? Math.abs(edge) >= se : false;
+      if (significant) effectiveness = winEdge * 1.5 + (edge / 25);
+    }
+    // Too few picks without the signal means it fired on nearly everything, so
+    // there is nothing to compare against — leave its weight alone.
+
+    // Conservative learning rate (8%), scales with evidence strength (caps at 30 samples)
+    const evidenceStrength = Math.min(1.0, s.count / 30);
     const adjustment = 0.08 * effectiveness * evidenceStrength * Math.abs(currentPts || 1);
 
-    const rawNew    = currentPts + adjustment;
-    const defAbs    = Math.abs(SIGNAL_DEFAULTS[key] || 1);
-    // Clamp: signals can move at most 2× their default magnitude in either direction
+    // Pull gently back toward the default every cycle. A signal that keeps
+    // earning real edge easily out-earns this; drift that was never justified
+    // decays away instead of compounding forever.
+    const defPts  = SIGNAL_DEFAULTS[key] ?? 1;
+    const decayed = currentPts + (defPts - currentPts) * WEIGHT_DECAY;
+
+    const rawNew    = decayed + adjustment;
+    const defAbs    = Math.abs(defPts || 1);
+    // Clamp: signals can move at most 2.5× their default magnitude in either direction
     const newPts    = Math.max(-defAbs * 2.5, Math.min(defAbs * 2.5, rawNew));
 
     const delta = newPts - currentPts;
@@ -275,6 +415,7 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
         winRate:   Math.round(winRate * 100),
         avgReturn: parseFloat(avgReturn.toFixed(1)),
         edge:      parseFloat(edge.toFixed(1)),
+        significant,
         count:     s.count,
         direction: delta > 0 ? 'up' : 'down',
       });
@@ -318,7 +459,9 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
 // ── Email ─────────────────────────────────────────────────────────────────────
 
 function buildEmail(perfStats, weightResult, scanLogs) {
-  const { totalTracked, withPrice, winRate, avgReturn, topGainers, bestTicker, worstTicker } = perfStats;
+  const { totalTracked, withPrice, winRate, avgReturn, topGainers, bestTicker, worstTicker,
+          avgAlpha = 0, beatSpyRate = 0, avgSpy = 0, cohorts = [], control = null, maturedCount = 0,
+          portfolio = null } = perfStats;
   const { changes, eligibleCount, signalsAnalyzed } = weightResult;
   const reportDate = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
@@ -331,11 +474,13 @@ function buildEmail(perfStats, weightResult, scanLogs) {
           <td style="padding:4px 8px;color:#aaa;">${c.from}</td>
           <td style="padding:4px 8px;font-weight:700;color:${col};">${c.to} ${arrow}</td>
           <td style="padding:4px 8px;">${c.winRate}%</td>
-          <td style="padding:4px 8px;color:${c.avgReturn >= 0 ? '#00ff88' : '#ff4d4d'};">${c.avgReturn >= 0 ? '+' : ''}${c.avgReturn}%</td>
+          <td style="padding:4px 8px;font-weight:700;color:${c.edge >= 0 ? '#00ff88' : '#ff4d4d'};">${c.edge >= 0 ? '+' : ''}${c.edge}pp</td>
           <td style="padding:4px 8px;color:#666;">${c.count}</td>
         </tr>`;
       }).join('')
-    : '<tr><td colspan="6" style="padding:8px;color:#555;">No weight changes this cycle — not enough outcome data yet</td></tr>';
+    : `<tr><td colspan="6" style="padding:8px;color:#555;">No weights moved this cycle. ${weightResult.skipped
+         ? 'Not enough matured outcomes yet (' + eligibleCount + ' of ' + (MIN_SAMPLES * 2) + ' needed).'
+         : 'No signal showed an edge large enough to separate it from chance — holding steady is the correct result, not a failure.'}</td></tr>`;
 
   const topRows = topGainers.slice(0, 8).map(t => {
     const color = t.pct >= 0 ? '#00ff88' : '#ff4d4d';
@@ -346,6 +491,69 @@ function buildEmail(perfStats, weightResult, scanLogs) {
       <td style="padding:4px 8px;font-weight:700;color:${color};">${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%</td>
     </tr>`;
   }).join('');
+
+  const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const portfolioBlock = portfolio ? `
+    <div style="background:#0b1410;border:1px solid ${portfolio.totalEarned >= 0 ? '#1d4f33' : '#4f1d1d'};padding:16px;margin-bottom:20px;">
+      <div style="font-size:8px;color:#666;letter-spacing:2px;margin-bottom:10px;">💼 MOCK PORTFOLIO — ${money(portfolio.start)} FOLLOWING EVERY GOLDEN BULL</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+        <div>
+          <div style="font-size:26px;font-weight:700;color:${portfolio.totalEarned >= 0 ? '#00ff88' : '#ff4d4d'};">${portfolio.totalEarned >= 0 ? '+' : ''}${money(portfolio.totalEarned)}</div>
+          <div style="font-size:8px;color:#666;letter-spacing:1px;">TOTAL EARNED · ${portfolio.totalReturn >= 0 ? '+' : ''}${portfolio.totalReturn}%</div>
+        </div>
+        <div>
+          <div style="font-size:26px;font-weight:700;color:${portfolio.avgDaily >= 0 ? '#00ff88' : '#ff4d4d'};">${portfolio.avgDaily >= 0 ? '+' : ''}${money(portfolio.avgDaily)}</div>
+          <div style="font-size:8px;color:#666;letter-spacing:1px;">AVERAGE PER DAY · ${portfolio.days} DAYS</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:#888;line-height:1.8;border-top:1px solid #1a1a1a;padding-top:10px;">
+        Account value <strong style="color:#e0e0e0;">${money(portfolio.equity)}</strong>
+        ${portfolio.spyEquity !== null ? `· same money in the S&amp;P would be <strong style="color:#e0e0e0;">${money(portfolio.spyEquity)}</strong>` : ''}<br>
+        ${portfolio.tradesClosed} trades closed · ${portfolio.openPositions} open · ${portfolio.winRate}% profitable · ${portfolio.upDayRate}% of ${portfolio.activeDays} active days up
+        ${portfolio.skipped ? `· ${portfolio.skipped} signals skipped (no free capital)` : ''}<br>
+        ${portfolio.best ? `Best ${portfolio.best.ticker} ${portfolio.best.pct >= 0 ? '+' : ''}${portfolio.best.pct}%` : ''}
+        ${portfolio.worst ? `· Worst ${portfolio.worst.ticker} ${portfolio.worst.pct >= 0 ? '+' : ''}${portfolio.worst.pct}%` : ''}
+      </div>
+      <div style="font-size:8px;color:#666;letter-spacing:1px;margin:12px 0 4px;">LAST 10 DAYS</div>
+      <table style="width:100%;border-collapse:collapse;font-size:10px;">
+        ${portfolio.recentDaily.map(d => `<tr>
+          <td style="padding:2px 6px;color:#888;">${d.date}</td>
+          <td style="padding:2px 6px;text-align:right;font-weight:700;color:${d.pnl >= 0 ? '#00ff88' : '#ff4d4d'};">${d.pnl >= 0 ? '+' : ''}${money(d.pnl)}</td>
+        </tr>`).join('')}
+      </table>
+      <div style="font-size:9px;color:#555;line-height:1.6;margin-top:10px;">
+        Simulation only. ${money(portfolio.positionSize)} per pick, ${portfolio.slots || PORTFOLIO_SLOTS} positions max, held ${portfolio.holdDays} days,
+        filled at the published signal price and the closing price on exit. No commissions, slippage,
+        dividends or taxes — real trading would return less.
+      </div>
+    </div>` : '';
+
+  const cohortRows = cohorts.length
+    ? cohorts.map(c => {
+        const rc = c.avgPct >= 0 ? '#00ff88' : '#ff4d4d';
+        const ac = c.avgAlpha === null ? '#666' : (c.avgAlpha >= 0 ? '#00ff88' : '#ff4d4d');
+        return `<tr>
+          <td style="padding:4px 8px;color:#aaa;">${c.label}</td>
+          <td style="padding:4px 8px;color:#666;">${c.n}</td>
+          <td style="padding:4px 8px;">${c.winRate}%</td>
+          <td style="padding:4px 8px;font-weight:700;color:${rc};">${c.avgPct >= 0 ? '+' : ''}${c.avgPct}%</td>
+          <td style="padding:4px 8px;font-weight:700;color:${ac};">${c.avgAlpha === null ? '—' : (c.avgAlpha >= 0 ? '+' : '') + c.avgAlpha + '%'}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="5" style="padding:8px;color:#555;">No picks have reached the ${HORIZON_DAYS}-day mark yet — first cohort lands soon</td></tr>`;
+
+  const controlBlock = control
+    ? `<div style="color:${control.better ? '#00ff88' : '#ff9055'};font-weight:700;margin-bottom:4px;">
+         ${!control.diverged ? '· No divergence yet' : (control.better ? '✓ Tuning is helping' : '⚠ Tuning is not helping yet')}
+       </div>
+       <div style="color:#888;">
+         ${!control.diverged ? 'The learned weights still match the defaults exactly, so both rank the picks the same way. ' : ''}Ranking the same ${control.n} picks by the learned weights puts
+         <strong style="color:#e0e0e0;">${control.learnedTop >= 0 ? '+' : ''}${control.learnedTop}%</strong>
+         vs-market in the top half, against
+         <strong style="color:#e0e0e0;">${control.defaultTop >= 0 ? '+' : ''}${control.defaultTop}%</strong>
+         for the original untuned weights.
+       </div>`
+    : '<div style="color:#555;">Not enough scored picks yet to compare learned weights against the defaults.</div>';
 
   const scanRows = scanLogs.slice(0, 5).map(l => {
     const ts = l.gb_tickers || [];
@@ -369,20 +577,36 @@ function buildEmail(perfStats, weightResult, scanLogs) {
     <div style="font-size:10px;color:#666;margin-top:4px;">${reportDate} · Algorithm self-adjusted based on ${eligibleCount} tracked outcomes</div>
   </div>
 
-  <!-- Performance summary -->
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:24px;">
+  ${portfolioBlock}
+
+  <!-- Benchmark first: the only number that separates skill from market drift -->
+  <div style="background:#0d1a12;border:1px solid ${avgAlpha >= 0 ? '#1d4f33' : '#4f1d1d'};padding:14px;margin-bottom:12px;text-align:center;">
+    <div style="font-size:28px;font-weight:700;color:${avgAlpha >= 0 ? '#00ff88' : '#ff4d4d'};">${avgAlpha >= 0 ? '+' : ''}${avgAlpha.toFixed(2)}%</div>
+    <div style="font-size:9px;color:#888;letter-spacing:1px;margin-top:4px;">VS S&amp;P 500 OVER THE SAME DAYS</div>
+    <div style="font-size:10px;color:#666;margin-top:6px;">
+      picks ${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(1)}% · market ${avgSpy >= 0 ? '+' : ''}${avgSpy.toFixed(1)}% · ${beatSpyRate}% of picks beat it
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:20px;">
     <div style="background:#111;border:1px solid #1a1a1a;padding:12px;text-align:center;">
-      <div style="font-size:22px;font-weight:700;color:#00ff88;">${winRate}%</div>
-      <div style="font-size:8px;color:#555;letter-spacing:1px;margin-top:2px;">WIN RATE</div>
+      <div style="font-size:20px;font-weight:700;color:#00ff88;">${winRate}%</div>
+      <div style="font-size:8px;color:#555;letter-spacing:1px;margin-top:2px;">ABOVE ENTRY</div>
     </div>
     <div style="background:#111;border:1px solid #1a1a1a;padding:12px;text-align:center;">
-      <div style="font-size:22px;font-weight:700;color:${avgReturn >= 0 ? '#00ff88' : '#ff4d4d'};">${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(1)}%</div>
+      <div style="font-size:20px;font-weight:700;color:${avgReturn >= 0 ? '#00ff88' : '#ff4d4d'};">${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(1)}%</div>
       <div style="font-size:8px;color:#555;letter-spacing:1px;margin-top:2px;">AVG RETURN</div>
     </div>
     <div style="background:#111;border:1px solid #1a1a1a;padding:12px;text-align:center;">
-      <div style="font-size:22px;font-weight:700;color:#ffcc44;">${totalTracked}</div>
+      <div style="font-size:20px;font-weight:700;color:#ffcc44;">${totalTracked}</div>
       <div style="font-size:8px;color:#555;letter-spacing:1px;margin-top:2px;">TRACKED</div>
     </div>
+  </div>
+
+  <div style="font-size:9px;color:#555;line-height:1.6;margin-bottom:22px;padding:8px 10px;background:#0d0d0d;border-left:2px solid #222;">
+    ABOVE ENTRY and AVG RETURN mark every pick from the last 60 days to today, so they move with the
+    market and lag any algorithm change by weeks. Judge the system on VS S&amp;P 500 and on the cohort
+    table below, which score every pick over the same ${HORIZON_DAYS}-day window.
   </div>
 
   <!-- Algorithm weight changes -->
@@ -393,11 +617,34 @@ function buildEmail(perfStats, weightResult, scanLogs) {
       <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">OLD PTS</th>
       <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">NEW PTS</th>
       <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">WIN%</th>
-      <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">AVG RET</th>
+      <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">EDGE</th>
       <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">N</th>
     </tr>
     ${changedRows}
   </table>
+
+  <!-- Fixed-horizon cohorts: the series that actually shows learning -->
+  <div style="font-size:8px;color:#555;letter-spacing:1px;margin-bottom:6px;">📈 ${HORIZON_DAYS}-DAY OUTCOME BY WHEN THE PICK WAS MADE</div>
+  <table style="width:100%;border-collapse:collapse;margin-bottom:8px;font-size:10px;">
+    <tr style="border-bottom:1px solid #1a1a1a;">
+      <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;letter-spacing:1px;">PICKED</th>
+      <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">N</th>
+      <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">WIN%</th>
+      <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">AVG ${HORIZON_DAYS}D</th>
+      <th style="padding:5px 8px;text-align:left;color:#444;font-weight:400;font-size:8px;">VS SPY</th>
+    </tr>
+    ${cohortRows}
+  </table>
+  <div style="font-size:9px;color:#555;margin-bottom:24px;">
+    Newest cohort first. Every row is measured the same way, so this is the honest
+    like-for-like trend — rising VS SPY means the algorithm is genuinely improving.
+  </div>
+
+  <!-- Control arm -->
+  <div style="font-size:8px;color:#555;letter-spacing:1px;margin-bottom:6px;">🧪 LEARNED WEIGHTS vs UNTOUCHED DEFAULTS</div>
+  <div style="background:#111;border:1px solid #1a1a1a;padding:12px;margin-bottom:24px;font-size:10px;line-height:1.7;">
+    ${controlBlock}
+  </div>
 
   <!-- Top performers -->
   <div style="font-size:8px;color:#555;letter-spacing:1px;margin-bottom:6px;">🏆 TOP PERFORMERS</div>
@@ -546,15 +793,42 @@ export default async function handler(req, res) {
     }
     const unique = [...byTicker.values()];
 
-    // Fetch current prices for all tracked tickers
-    const symbols = unique.map(r => r.ticker).filter(t => !t.endsWith('-USD'));
-    const prices  = await fetchCurrentPrices(symbols);
+    // One series per ticker, plus SPY as the benchmark
+    const symbols = unique.map(r => r.ticker);
+    const series  = await fetchSeries([...new Set([...symbols, 'SPY'])]);
+    const spy     = series['SPY'] || null;
+    const spyNow  = lastClose(spy);
 
-    // Attach current price + % gain to each record
+    const nowSec    = Math.floor(Date.now() / 1000);
+    const horizonSec = HORIZON_DAYS * 86400;
+
     const withPct = unique.map(r => {
-      const cur = prices[r.ticker];
-      if (!cur) return { ...r, pct: null };
-      return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100, currentPrice: cur };
+      const s     = series[r.ticker];
+      const entry = parseFloat(r.signal_price);
+      const detSec = Math.floor(new Date(r.detected_at).getTime() / 1000);
+      const cur   = lastClose(s);
+      const pct   = pctChange(entry, cur);
+
+      // Market over the identical window. Without this a falling win rate is
+      // indistinguishable from a falling market.
+      const spyThen = spy ? closeAt(spy, detSec) : null;
+      const spyPct  = pctChange(spyThen, spyNow);
+      const alpha   = (pct != null && spyPct != null) ? pct - spyPct : null;
+
+      // Fixed-horizon outcome: what this pick did in its first HORIZON_DAYS,
+      // regardless of when it was picked. Marking everything to today instead
+      // means old and new picks are scored over different lengths of time and
+      // no two reports are comparable.
+      let maturedPct = null, maturedAlpha = null;
+      if (nowSec - detSec >= horizonSec) {
+        const atH    = closeAt(s, detSec + horizonSec);
+        maturedPct   = pctChange(entry, atH);
+        const spyAtH = spy ? closeAt(spy, detSec + horizonSec) : null;
+        const spyH   = pctChange(spyThen, spyAtH);
+        if (maturedPct != null && spyH != null) maturedAlpha = maturedPct - spyH;
+      }
+
+      return { ...r, currentPrice: cur, pct, spyPct, alpha, maturedPct, maturedAlpha, detSec };
     });
 
     // ── Auto-update signal weights ───────────────────────────────────────────
@@ -569,17 +843,94 @@ export default async function handler(req, res) {
       ? withKnownPct.reduce((s, r) => s + r.pct, 0) / withKnownPct.length : 0;
     const topGainers   = [...withKnownPct].sort((a, b) => b.pct - a.pct);
 
+    // Benchmark: are the picks beating the market they were picked in?
+    const withAlpha   = withKnownPct.filter(r => r.alpha !== null);
+    const avgAlpha    = withAlpha.length
+      ? withAlpha.reduce((s, r) => s + r.alpha, 0) / withAlpha.length : 0;
+    const beatSpyRate = withAlpha.length
+      ? Math.round(withAlpha.filter(r => r.alpha > 0).length / withAlpha.length * 100) : 0;
+    const avgSpy      = withAlpha.length
+      ? withAlpha.reduce((s, r) => s + r.spyPct, 0) / withAlpha.length : 0;
+
+    // Cohorts: picks bucketed by when they were made, each scored over the same
+    // fixed holding period. This is the series that actually shows whether the
+    // algorithm is improving, because every bucket is measured the same way.
+    const BUCKET_DAYS = 10;
+    const matured  = withPct.filter(r => r.maturedPct !== null);
+    const buckets  = new Map();
+    for (const r of matured) {
+      const ageDays = Math.floor((nowSec - r.detSec) / 86400);
+      const b = Math.floor(ageDays / BUCKET_DAYS);
+      if (!buckets.has(b)) buckets.set(b, []);
+      buckets.get(b).push(r);
+    }
+    const cohorts = [...buckets.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .filter(([, rows]) => rows.length >= 3)
+      .slice(0, 5)
+      .map(([b, rows]) => {
+        const avg   = rows.reduce((s, r) => s + r.maturedPct, 0) / rows.length;
+        const withA = rows.filter(r => r.maturedAlpha !== null);
+        const alpha = withA.length ? withA.reduce((s, r) => s + r.maturedAlpha, 0) / withA.length : null;
+        return {
+          label:   `${b * BUCKET_DAYS}-${(b + 1) * BUCKET_DAYS}d ago`,
+          n:       rows.length,
+          winRate: Math.round(rows.filter(r => r.maturedPct > 0).length / rows.length * 100),
+          avgPct:  parseFloat(avg.toFixed(2)),
+          avgAlpha: alpha === null ? null : parseFloat(alpha.toFixed(2)),
+        };
+      });
+
+    // Control: do the learned weights rank picks better than the untouched
+    // defaults would have? Same picks, two scorings, compare the top half.
+    const learnedMap = {};
+    for (const k of Object.keys(SIGNAL_DEFAULTS)) {
+      const v = currentWeights[k]?.base_points;
+      learnedMap[k] = v !== undefined ? parseFloat(v) : SIGNAL_DEFAULTS[k];
+    }
+    const scoreBy = (keys, map) => (keys || []).reduce((s, k) => s + (map[k] ?? 0), 0);
+    const ctrlPool = withPct.filter(r => Array.isArray(r.signal_keys) && r.signal_keys.length && r.alpha !== null);
+    let control = null;
+    if (ctrlPool.length >= 10) {
+      const half = Math.max(1, Math.floor(ctrlPool.length / 2));
+      const topAvg = (map) => {
+        const ranked = [...ctrlPool].sort((a, b) => scoreBy(b.signal_keys, map) - scoreBy(a.signal_keys, map));
+        const top = ranked.slice(0, half);
+        return top.reduce((s, r) => s + r.alpha, 0) / top.length;
+      };
+      const learnedTop = topAvg(learnedMap);
+      const defaultTop = topAvg(SIGNAL_DEFAULTS);
+      // Before any weight has moved the two scorings are the same function, so
+      // they rank identically. Say that, rather than reporting "not helping".
+      const diverged = Object.keys(SIGNAL_DEFAULTS)
+        .some(k => Math.abs(learnedMap[k] - SIGNAL_DEFAULTS[k]) > 0.001);
+      control = {
+        n:          ctrlPool.length,
+        learnedTop: parseFloat(learnedTop.toFixed(2)),
+        defaultTop: parseFloat(defaultTop.toFixed(2)),
+        diverged,
+        better:     diverged && learnedTop > defaultTop,
+      };
+    }
+
+    // Mock portfolio replayed over the real pick history
+    const portfolio = simulatePortfolio(withPct, series, spy);
+
     const perfStats = {
+      portfolio,
       totalTracked: unique.length,
       withPrice:    withKnownPct.length,
       winRate, avgReturn, topGainers,
+      avgAlpha, beatSpyRate, avgSpy,
+      cohorts, control,
+      maturedCount: matured.length,
       bestTicker:  topGainers[0]  || null,
       worstTicker: topGainers[topGainers.length - 1] || null,
     };
 
     // ── Send email ────────────────────────────────────────────────────────────
     const date    = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const subject = `Signalscan ${date} — ${winRate}% win rate · ${weightResult.changes.length} signals auto-adjusted`;
+    const subject = `Signalscan ${date} — ${avgAlpha >= 0 ? '+' : ''}${avgAlpha.toFixed(1)}% vs S&P · ${weightResult.changes.length} signals adjusted`;
     const html    = buildEmail(perfStats, weightResult, scanLogs);
     const sent    = await sendEmail(subject, html);
 
@@ -598,6 +949,13 @@ export default async function handler(req, res) {
       },
       winRate,
       avgReturn:        parseFloat(avgReturn.toFixed(2)),
+      vsMarket:         parseFloat(avgAlpha.toFixed(2)),
+      marketReturn:     parseFloat(avgSpy.toFixed(2)),
+      beatMarketRate:   beatSpyRate,
+      cohorts,
+      control,
+      portfolio,
+      maturedOutcomes:  matured.length,
       totalTracked:     unique.length,
       eligibleOutcomes: weightResult.eligibleCount,
       weightsUpdated:   weightResult.changes.length,
