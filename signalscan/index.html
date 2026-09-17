@@ -625,6 +625,85 @@ header {
   transform: translateX(16px) !important;
   background: #9b6bff !important;
 }
+
+/* ── Mock portfolio ── */
+.pf-controls {
+  display: flex !important; flex-wrap: wrap !important; align-items: center !important;
+  gap: 12px !important; margin: 16px 0 18px !important;
+}
+.pf-controls label {
+  display: flex !important; align-items: center !important; gap: 6px !important;
+  font-family: 'Space Mono', monospace !important; font-size: 9px !important;
+  letter-spacing: 1.5px !important; color: var(--muted) !important;
+}
+.pf-controls label span { color: var(--muted) !important; }
+.pf-controls input {
+  background: rgba(0,0,0,0.4) !important; border: 1px solid rgba(0,255,136,0.25) !important;
+  border-radius: 6px !important; color: #e8edf2 !important;
+  font-family: 'Space Mono', monospace !important; font-size: 12px !important;
+  padding: 7px 9px !important; width: 92px !important; outline: none !important;
+  transition: border-color 0.2s, box-shadow 0.2s !important;
+}
+.pf-controls input:focus { border-color: var(--accent) !important; box-shadow: 0 0 14px rgba(0,255,136,0.25) !important; }
+.pf-btn {
+  background: linear-gradient(135deg,#00d977,#00ff88) !important; color: #00140a !important;
+  border: none !important; border-radius: 8px !important;
+  font-family: 'Syne', sans-serif !important; font-weight: 800 !important;
+  font-size: 11px !important; letter-spacing: 1.5px !important;
+  padding: 10px 20px !important; cursor: pointer !important;
+  transition: box-shadow 0.2s, transform 0.2s !important;
+}
+.pf-btn:hover:not(:disabled) { box-shadow: 0 0 22px rgba(0,255,136,0.5) !important; transform: translateY(-2px) !important; }
+.pf-btn:disabled { opacity: 0.55 !important; cursor: default !important; }
+.pf-hero {
+  display: grid !important; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)) !important;
+  gap: 16px !important; background: rgba(0,20,10,0.5) !important;
+  border: 1px solid rgba(0,255,136,0.3) !important; border-radius: 12px !important;
+  padding: 20px !important; margin-bottom: 12px !important;
+  backdrop-filter: blur(12px) !important;
+}
+.pf-hero-col { text-align: center !important; }
+.pf-big {
+  font-family: 'Syne', sans-serif !important; font-weight: 800 !important;
+  font-size: 30px !important; letter-spacing: -1px !important; color: #e8edf2 !important;
+}
+.pf-lbl {
+  font-family: 'Space Mono', monospace !important; font-size: 8px !important;
+  letter-spacing: 1.5px !important; color: var(--muted) !important; margin-top: 4px !important;
+}
+.pf-bench {
+  background: rgba(255,255,255,0.03) !important; border-left: 3px solid var(--accent) !important;
+  border-radius: 6px !important; padding: 11px 14px !important; margin-bottom: 14px !important;
+  font-size: 11px !important; line-height: 1.7 !important; color: #c9d1d9 !important;
+}
+.pf-stats {
+  display: grid !important; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)) !important;
+  gap: 10px !important; margin-bottom: 18px !important;
+}
+.pf-stats div {
+  background: rgba(13,17,23,0.7) !important; border: 1px solid var(--border) !important;
+  border-radius: 8px !important; padding: 12px 8px !important; text-align: center !important;
+  font-family: 'Space Mono', monospace !important; font-size: 8px !important;
+  letter-spacing: 1px !important; color: var(--muted) !important;
+}
+.pf-stats div span {
+  display: block !important; font-family: 'Syne', sans-serif !important;
+  font-weight: 800 !important; font-size: 19px !important; color: #e8edf2 !important;
+  margin-bottom: 3px !important; letter-spacing: 0 !important;
+}
+.pf-grid {
+  display: grid !important; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
+  gap: 18px !important; margin-bottom: 14px !important;
+}
+.pf-sub {
+  font-family: 'Space Mono', monospace !important; font-size: 8px !important;
+  letter-spacing: 2px !important; color: var(--muted) !important; margin-bottom: 7px !important;
+}
+.pf-ext { font-size: 11px !important; line-height: 2 !important; color: #c9d1d9 !important; }
+.pf-disclaimer {
+  font-size: 9px !important; line-height: 1.7 !important; color: var(--muted) !important;
+  border-top: 1px solid var(--border) !important; padding-top: 11px !important;
+}
 </style>
 </head>
 <body>
@@ -981,6 +1060,32 @@ header {
   </div><!-- /appSectionAlgoLab -->
 
   <!-- ── Hall of Fame — always visible below tabs ──────────────────────── -->
+  <!-- ── 💼 Mock portfolio ─────────────────────────────────────── -->
+  <div id="pfSection" style="padding:32px;border-top:1px solid rgba(0,255,136,0.25);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:6px;">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;letter-spacing:-0.3px;">💼 MOCK <span style="color:var(--accent);">PORTFOLIO</span></div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-top:4px;">What following every Golden Bull would have earned — simulated on real recorded picks</div>
+      </div>
+      <span id="pfStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px;"></span>
+    </div>
+
+    <div class="pf-controls">
+      <label>STARTING CAPITAL <span>$</span><input id="pfCapital" type="number" value="10000" min="100" step="500"></label>
+      <label>POSITIONS <input id="pfSlots" type="number" value="10" min="1" max="50" step="1"></label>
+      <label>HOLD DAYS <input id="pfHold" type="number" value="14" min="1" max="90" step="1"></label>
+      <button id="pfRunBtn" class="pf-btn" onclick="runPortfolioSim()">▶ RUN SIMULATION</button>
+    </div>
+
+    <div id="pfResults">
+      <div style="padding:22px;border:1px dashed var(--border);border-radius:10px;font-size:11px;color:var(--muted);line-height:1.7;">
+        Set your starting capital, how many positions you would hold at once, and how long you would hold each pick.
+        The simulation replays every Golden Bull the scanner has recorded over the last 60 days, buying at the price
+        it was flagged at and selling after the holding period — skipping signals when no cash is free.
+      </div>
+    </div>
+  </div>
+
   <div id="hofSection" style="display:none;padding:32px;border-top:1px solid var(--border);">
     <div id="hofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;">🏆 GOLDEN BULL HALL OF FAME</div>
     <div id="hofSubtitle" style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:20px;">ALL-TIME · <span id="hofTotalCount">0</span> TOTAL SIGNALS DETECTED</div>

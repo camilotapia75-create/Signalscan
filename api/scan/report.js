@@ -158,14 +158,16 @@ const pctChange = (from, to) =>
 // recorded signal price and at the closing price on the exit date, no
 // commissions, no slippage, no dividends, no taxes.
 
-const PORTFOLIO_START = 10000;   // starting capital
-const PORTFOLIO_SLOTS = 10;      // max concurrent positions -> $1,000 per trade
+// Configurable ahead of ever pointing this at real money.
+const PORTFOLIO_START = parseFloat(process.env.PORTFOLIO_START      || '10000');
+const PORTFOLIO_SLOTS = parseInt(  process.env.PORTFOLIO_SLOTS      || '10', 10);
+const PORTFOLIO_HOLD  = parseInt(  process.env.PORTFOLIO_HOLD_DAYS  || String(HORIZON_DAYS), 10);
 
 function simulatePortfolio(picks, series, spy) {
   const DAY = 86400;
   const positionSize = PORTFOLIO_START / PORTFOLIO_SLOTS;
   const nowSec  = Math.floor(Date.now() / 1000);
-  const holdSec = HORIZON_DAYS * DAY;
+  const holdSec = PORTFOLIO_HOLD * DAY;
 
   const valid = picks
     .filter(p => series[p.ticker] && parseFloat(p.signal_price) > 0 && p.detSec)
@@ -254,7 +256,7 @@ function simulatePortfolio(picks, series, spy) {
     skipped,
     winRate:       closed.length ? Math.round(wins / closed.length * 100) : 0,
     positionSize,
-    holdDays:      HORIZON_DAYS,
+    holdDays:      PORTFOLIO_HOLD,
     best:          byRet[0] ? { ticker: byRet[0].ticker, pct: parseFloat((byRet[0].ret * 100).toFixed(1)) } : null,
     worst:         byRet.length ? { ticker: byRet[byRet.length - 1].ticker, pct: parseFloat((byRet[byRet.length - 1].ret * 100).toFixed(1)) } : null,
   };

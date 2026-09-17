@@ -1640,3 +1640,240 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(runAnalysis, 700);
   }
 });
+
+// ── Mock portfolio ────────────────────────────────────────────────────────────
+// Replays every Golden Bull the scanner has recorded as if a fixed amount had
+// been invested in each and held for a fixed number of days, with real capital
+// constraints — when no cash is free the signal is genuinely missed rather than
+// silently taken. Mirrors api/scan/report.js so the site and the emailed report
+// cannot disagree.
+//
+// Simulation only: fills at the published signal price and the exit day's
+// close, no commissions, slippage, dividends or taxes.
+
+const PF_DAY = 86400;
+let _pfSeries = null;   // { ticker: {ts, closes} }
+let _pfPicks  = null;   // deduped HOF records
+
+function _pfCloseAt(series, epochSec) {
+  if (!series?.ts?.length) return null;
+  let lo = 0, hi = series.ts.length - 1, best = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (series.ts[mid] <= epochSec) { best = mid; lo = mid + 1; } else { hi = mid - 1; }
+  }
+  return best >= 0 ? series.closes[best] : null;
+}
+const _pfLast = s => (s?.closes?.length ? s.closes[s.closes.length - 1] : null);
+const _pfMoney = n => (n < 0 ? '-$' : '$') +
+  Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function simulatePortfolioClient(picks, series, spy, opts) {
+  const start = opts.capital, slots = opts.slots, holdDays = opts.holdDays;
+  const positionSize = start / slots;
+  const nowSec  = Math.floor(Date.now() / 1000);
+  const holdSec = holdDays * PF_DAY;
+
+  const valid = picks
+    .filter(p => series[p.ticker] && parseFloat(p.signal_price) > 0)
+    .map(p => ({ ...p, detSec: Math.floor(new Date(p.detected_at).getTime() / 1000) }))
+    .sort((a, b) => a.detSec - b.detSec);
+  if (!valid.length) return null;
+
+  const startDay = Math.floor(valid[0].detSec / PF_DAY) * PF_DAY;
+  const endDay   = Math.floor(nowSec / PF_DAY) * PF_DAY;
+
+  let cash = start;
+  const open = [], closed = [], curve = [];
+  let skipped = 0, pi = 0;
+
+  for (let d = startDay; d <= endDay; d += PF_DAY) {
+    for (let i = open.length - 1; i >= 0; i--) {
+      const o = open[i];
+      if (o.exitSec > d) continue;
+      const px = _pfCloseAt(series[o.ticker], o.exitSec) ?? _pfCloseAt(series[o.ticker], d) ?? o.entry;
+      cash += o.shares * px;
+      closed.push({ ticker: o.ticker, ret: (px - o.entry) / o.entry });
+      open.splice(i, 1);
+    }
+    while (pi < valid.length && valid[pi].detSec < d + PF_DAY) {
+      const p = valid[pi++];
+      const entry = parseFloat(p.signal_price);
+      if (cash + 1e-9 < positionSize) { skipped++; continue; }
+      cash -= positionSize;
+      open.push({ ticker: p.ticker, shares: positionSize / entry, entry, exitSec: p.detSec + holdSec });
+    }
+    let mv = 0;
+    for (const o of open) mv += o.shares * (_pfCloseAt(series[o.ticker], d) ?? o.entry);
+    curve.push({ t: d, equity: cash + mv });
+  }
+
+  const equity = curve[curve.length - 1].equity;
+  const totalEarned = equity - start;
+  const daily = [];
+  for (let i = 1; i < curve.length; i++) daily.push({ t: curve[i].t, pnl: curve[i].equity - curve[i - 1].equity });
+  const active = daily.filter(x => Math.abs(x.pnl) > 0.005);
+  const sortedD = [...active].sort((a, b) => b.pnl - a.pnl);
+
+  const spyStart = spy ? _pfCloseAt(spy, startDay) : null;
+  const spyEnd   = spy ? _pfLast(spy) : null;
+  const spyEquity = (spyStart && spyEnd) ? start * (spyEnd / spyStart) : null;
+
+  const wins  = closed.filter(t => t.ret > 0).length;
+  const byRet = [...closed].sort((a, b) => b.ret - a.ret);
+  const fmt   = t => new Date(t * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  return {
+    start, equity, totalEarned,
+    totalReturn: totalEarned / start * 100,
+    spyEquity,
+    days: daily.length,
+    activeDays: active.length,
+    avgDaily: daily.length ? daily.reduce((a, x) => a + x.pnl, 0) / daily.length : 0,
+    upDayRate: active.length ? Math.round(sortedD.filter(x => x.pnl > 0).length / active.length * 100) : 0,
+    bestDay:  sortedD[0] ? { date: fmt(sortedD[0].t), pnl: sortedD[0].pnl } : null,
+    worstDay: sortedD.length ? { date: fmt(sortedD[sortedD.length - 1].t), pnl: sortedD[sortedD.length - 1].pnl } : null,
+    recentDaily: daily.slice(-10).reverse().map(x => ({ date: fmt(x.t), pnl: x.pnl })),
+    tradesClosed: closed.length, openPositions: open.length, skipped,
+    winRate: closed.length ? Math.round(wins / closed.length * 100) : 0,
+    positionSize, holdDays,
+    best:  byRet[0] ? { ticker: byRet[0].ticker, pct: byRet[0].ret * 100 } : null,
+    worst: byRet.length ? { ticker: byRet[byRet.length - 1].ticker, pct: byRet[byRet.length - 1].ret * 100 } : null,
+    curve,
+  };
+}
+
+async function loadPortfolioData(statusEl) {
+  if (_pfSeries && _pfPicks) return true;
+  const sb = typeof getSupabase === 'function' ? getSupabase() : null;
+  if (!sb) return false;
+
+  const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await sb
+    .from('golden_bull_hof')
+    .select('ticker,detected_at,signal_price,conviction')
+    .gte('detected_at', cutoff)
+    .order('detected_at', { ascending: true })
+    .limit(2000);
+  if (error || !data?.length) return false;
+
+  // First detection per ticker is the entry, matching the report
+  const byTicker = new Map();
+  for (const r of data) if (!byTicker.has(r.ticker)) byTicker.set(r.ticker, r);
+  _pfPicks = [...byTicker.values()];
+
+  const symbols = [...new Set([..._pfPicks.map(p => p.ticker), 'SPY'])];
+  const series = {};
+  let done = 0, idx = 0;
+  const worker = async () => {
+    while (idx < symbols.length) {
+      const sym = symbols[idx++];
+      const d = await _fetchScanData(sym, '3mo');
+      if (d?.closes?.length && d.timestamps?.length) {
+        const ts = [], closes = [];
+        for (let i = 0; i < d.closes.length; i++) {
+          if (d.closes[i] != null) { ts.push(d.timestamps[i]); closes.push(d.closes[i]); }
+        }
+        if (closes.length) series[sym] = { ts, closes };
+      }
+      done++;
+      if (statusEl) statusEl.textContent = `LOADING PRICE HISTORY ${done}/${symbols.length}`;
+    }
+  };
+  await Promise.all(Array.from({ length: 8 }, worker));
+  _pfSeries = series;
+  return true;
+}
+
+async function runPortfolioSim() {
+  const btn     = document.getElementById('pfRunBtn');
+  const statusEl = document.getElementById('pfStatus');
+  const out     = document.getElementById('pfResults');
+  if (!out) return;
+
+  const capital  = Math.max(100,  parseFloat(document.getElementById('pfCapital')?.value)  || 10000);
+  const slots    = Math.max(1,    parseInt(document.getElementById('pfSlots')?.value, 10)  || 10);
+  const holdDays = Math.max(1,    parseInt(document.getElementById('pfHold')?.value, 10)   || 14);
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ RUNNING...'; }
+  if (statusEl) statusEl.textContent = 'LOADING PICK HISTORY';
+
+  try {
+    const ok = await loadPortfolioData(statusEl);
+    if (!ok) {
+      out.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:11px;">No recorded Golden Bull picks yet — run a scan first, or wait for the daily scan to populate history.</div>';
+      return;
+    }
+    if (statusEl) statusEl.textContent = 'SIMULATING';
+    const r = simulatePortfolioClient(_pfPicks, _pfSeries, _pfSeries['SPY'], { capital, slots, holdDays });
+    if (!r) { out.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:11px;">Not enough price history to simulate.</div>'; return; }
+    out.innerHTML = renderPortfolio(r);
+    if (statusEl) statusEl.textContent = '';
+  } catch (e) {
+    out.innerHTML = `<div style="padding:20px;color:var(--accent2);font-size:11px;">Simulation failed: ${e.message}</div>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '▶ RUN SIMULATION'; }
+  }
+}
+
+function renderPortfolio(r) {
+  const gain = r.totalEarned >= 0;
+  const col  = gain ? 'var(--accent)' : 'var(--accent2)';
+  const vsSpy = r.spyEquity !== null ? r.equity - r.spyEquity : null;
+
+  const dailyRows = r.recentDaily.map(d => `<tr>
+      <td style="padding:3px 8px;color:var(--muted);font-size:10px;">${d.date}</td>
+      <td style="padding:3px 8px;text-align:right;font-weight:700;font-size:11px;color:${d.pnl >= 0 ? 'var(--accent)' : 'var(--accent2)'};">${d.pnl >= 0 ? '+' : ''}${_pfMoney(d.pnl)}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="pf-hero" style="border-color:${gain ? 'rgba(0,255,136,0.35)' : 'rgba(255,61,107,0.35)'};">
+      <div class="pf-hero-col">
+        <div class="pf-big" style="color:${col};">${gain ? '+' : ''}${_pfMoney(r.totalEarned)}</div>
+        <div class="pf-lbl">TOTAL EARNED · ${r.totalReturn >= 0 ? '+' : ''}${r.totalReturn.toFixed(2)}%</div>
+      </div>
+      <div class="pf-hero-col">
+        <div class="pf-big" style="color:${r.avgDaily >= 0 ? 'var(--accent)' : 'var(--accent2)'};">${r.avgDaily >= 0 ? '+' : ''}${_pfMoney(r.avgDaily)}</div>
+        <div class="pf-lbl">PER DAY · ${r.days} DAYS</div>
+      </div>
+      <div class="pf-hero-col">
+        <div class="pf-big">${_pfMoney(r.equity)}</div>
+        <div class="pf-lbl">ACCOUNT VALUE</div>
+      </div>
+    </div>
+
+    ${r.spyEquity !== null ? `<div class="pf-bench" style="border-left-color:${vsSpy >= 0 ? 'var(--accent)' : 'var(--accent2)'};">
+      Same ${_pfMoney(r.start)} in the S&amp;P over the same span would be <strong>${_pfMoney(r.spyEquity)}</strong> —
+      this algorithm is <strong style="color:${vsSpy >= 0 ? 'var(--accent)' : 'var(--accent2)'};">${vsSpy >= 0 ? 'ahead' : 'behind'} by ${_pfMoney(Math.abs(vsSpy))}</strong>.
+    </div>` : ''}
+
+    <div class="pf-stats">
+      <div><span>${r.tradesClosed}</span>TRADES CLOSED</div>
+      <div><span>${r.openPositions}</span>OPEN NOW</div>
+      <div><span>${r.winRate}%</span>PROFITABLE</div>
+      <div><span>${r.upDayRate}%</span>UP DAYS</div>
+      <div><span>${r.skipped}</span>MISSED (NO CASH)</div>
+    </div>
+
+    <div class="pf-grid">
+      <div>
+        <div class="pf-sub">LAST 10 DAYS</div>
+        <table style="width:100%;border-collapse:collapse;">${dailyRows}</table>
+      </div>
+      <div>
+        <div class="pf-sub">EXTREMES</div>
+        <div class="pf-ext">
+          ${r.best  ? `<div>Best trade <strong style="color:var(--accent)">${r.best.ticker} ${r.best.pct >= 0 ? '+' : ''}${r.best.pct.toFixed(1)}%</strong></div>` : ''}
+          ${r.worst ? `<div>Worst trade <strong style="color:var(--accent2)">${r.worst.ticker} ${r.worst.pct >= 0 ? '+' : ''}${r.worst.pct.toFixed(1)}%</strong></div>` : ''}
+          ${r.bestDay  ? `<div>Best day <strong style="color:var(--accent)">${r.bestDay.date} +${_pfMoney(r.bestDay.pnl)}</strong></div>` : ''}
+          ${r.worstDay ? `<div>Worst day <strong style="color:var(--accent2)">${r.worstDay.date} ${_pfMoney(r.worstDay.pnl)}</strong></div>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="pf-disclaimer">
+      Simulation only — not investment advice. ${_pfMoney(r.positionSize)} per pick, ${r.holdDays}-day hold,
+      filled at the published signal price and the exit day's close. No commissions, slippage, dividends
+      or taxes are modelled, so real trading would return less.
+    </div>`;
+}
