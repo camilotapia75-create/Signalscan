@@ -648,6 +648,16 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
   // Four hypotheses were tested, so the bar for calling any of them real has to
   // account for that. Bonferroni: 0.05 / 4.
   const ALPHA = 0.05 / results.length;
+  // Risk-adjusted is the test that cannot be gamed. Higher CAGR bought with
+  // higher volatility is not an edge: anyone can lever the control to the same
+  // risk. Whichever has the better Sharpe wins at EVERY risk level.
+  const ctlSharpe = equalWeight?.sharpe ?? null;
+  const bestVol   = best.outSample.sharpe > 0 ? best.outSample.cagr / best.outSample.sharpe : null;
+  const ctlVol    = (ctlSharpe && ctlSharpe > 0) ? equalWeight.cagr / ctlSharpe : null;
+  const leverage  = (bestVol && ctlVol) ? bestVol / ctlVol : null;
+  const leveredCtl = leverage ? equalWeight.cagr * leverage : null;
+  const riskAdjustedWin = (ctlSharpe !== null) ? best.outSample.sharpe > ctlSharpe : true;
+
   const beats = best.excess > 0;
   const consistent = best.vsControlIn != null && best.vsControlIn > 0 && (best.vsControlOut ?? -1) > 0;
   const MIN_EFF_N = 30;   // too few independent observations to claim anything
@@ -655,7 +665,14 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
   const sig   = !thin && best.outSample.pValue < ALPHA && best.outSample.avgExcess > 0;
 
   let level, headline, detail;
-  if (beats && sig && consistent) {
+  if (beats && !riskAdjustedWin) {
+    level = 'bad'; headline = 'HIGHER RETURN, BUT ONLY BY TAKING MORE RISK';
+    detail = `${best.name} returned ${pc(best.outSample.cagr)} against the control's ${pc(equalWeight.cagr)}, ` +
+      `but its Sharpe is ${best.outSample.sharpe.toFixed(2)} versus the control's ${ctlSharpe.toFixed(2)} and it drew down ` +
+      `${best.outSample.maxDrawdown.toFixed(1)}% against ${(equalWeight.maxDrawdown ?? 0).toFixed(1)}%. ` +
+      `Levering the control ${leverage.toFixed(2)}x to the same volatility returns ${pc(leveredCtl)} — ` +
+      `${pc(leveredCtl - best.outSample.cagr)} better at identical risk. The extra return is leverage, not skill.`;
+  } else if (beats && sig && consistent) {
     level = 'ok'; headline = 'CLEARS THE BAR IN BOTH PERIODS';
     detail = `${best.name} beat buy-and-hold by ${pc(best.excess)} a year out of sample. Its average trade beat the index by ${pc(best.outSample.avgExcess)} over the same days, p = ${best.outSample.pValue.toFixed(4)} against a corrected bar of ${ALPHA.toFixed(4)}, across ${best.outSample.effN} independent observations. Worth pursuing — and worth re-testing on a locked holdout before trusting.`;
   } else if (beats) {
@@ -729,6 +746,13 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
         <th>BUY &amp; HOLD</th><th>VS CONTROL (OOS)</th><th>VS CONTROL (IN)</th><th>EXCESS/TRADE vs UNIVERSE</th><th>EFF. N</th><th>WIN%</th><th>MAX DD</th><th>SHARPE</th><th>P-VALUE</th>
       </tr>
       ${scored.map((r, i) => row(r, i === 0)).join('')}
+      ${(equalWeight && leverage && leverage > 1.02) ? `<tr style="background:rgba(255,204,68,0.07);">
+        <td style="padding:6px 8px;color:var(--gold);"><span style="color:#555;font-size:9px;">CONTROL, RISK-MATCHED</span><br>Control levered ${leverage.toFixed(2)}x to the same volatility</td>
+        <td style="padding:6px 8px;color:#666;">0</td><td style="padding:6px 8px;color:#666;">—</td>
+        <td style="padding:6px 8px;color:#666;">${(leverage * 100).toFixed(0)}%</td>
+        <td style="padding:6px 8px;font-weight:700;color:var(--gold);">${pc(leveredCtl)}</td>
+        <td colspan="8" style="padding:6px 8px;color:#888;">what doing nothing returns at the same risk the strategy takes — the real bar</td>
+      </tr>` : ''}
       ${equalWeight ? `<tr style="border-top:2px solid var(--border);">
         <td style="padding:6px 8px;color:var(--gold);"><span style="color:#555;font-size:9px;">CONTROL</span><br>Own all ${equalWeight.members} names equally, do nothing</td>
         <td style="padding:6px 8px;color:#666;">0</td><td style="padding:6px 8px;color:#666;">—</td>
