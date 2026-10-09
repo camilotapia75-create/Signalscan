@@ -704,6 +704,47 @@ header {
   font-size: 9px !important; line-height: 1.7 !important; color: var(--muted) !important;
   border-top: 1px solid var(--border) !important; padding-top: 11px !important;
 }
+
+/* ── Backtest ── */
+.bt-btn {
+  background: linear-gradient(135deg,#7a4de0,#9b6bff) !important; color: #fff !important;
+  border: none !important; border-radius: 8px !important;
+  font-family: 'Syne', sans-serif !important; font-weight: 800 !important;
+  font-size: 11px !important; letter-spacing: 1.5px !important;
+  padding: 10px 20px !important; cursor: pointer !important;
+  transition: box-shadow 0.2s, transform 0.2s !important;
+}
+.bt-btn:hover:not(:disabled) { box-shadow: 0 0 22px rgba(155,107,255,0.55) !important; transform: translateY(-2px) !important; }
+.bt-btn:disabled { opacity: 0.55 !important; cursor: default !important; }
+.bt-verdict { border-radius: 10px !important; padding: 16px !important; margin-bottom: 14px !important; }
+.bt-verdict.bt-ok   { background: rgba(0,255,136,0.07) !important; border: 1px solid rgba(0,255,136,0.45) !important; }
+.bt-verdict.bt-warn { background: rgba(255,179,64,0.07) !important; border: 1px solid rgba(255,179,64,0.45) !important; }
+.bt-verdict.bt-bad  { background: rgba(255,61,107,0.07) !important; border: 1px solid rgba(255,61,107,0.45) !important; }
+.bt-verdict-head {
+  font-family: 'Syne', sans-serif !important; font-weight: 800 !important;
+  font-size: 15px !important; letter-spacing: 0.5px !important; margin-bottom: 6px !important;
+}
+.bt-ok   .bt-verdict-head { color: var(--accent) !important; }
+.bt-warn .bt-verdict-head { color: #ffb340 !important; }
+.bt-bad  .bt-verdict-head { color: var(--accent2) !important; }
+.bt-verdict-detail { font-size: 11px !important; line-height: 1.8 !important; color: #c9d1d9 !important; }
+.bt-meta {
+  font-family: 'Space Mono', monospace !important; font-size: 9px !important;
+  letter-spacing: 1.5px !important; color: var(--muted) !important; margin-bottom: 10px !important;
+}
+.bt-table { width: 100% !important; border-collapse: collapse !important; font-size: 11px !important; margin-bottom: 14px !important; }
+.bt-table th {
+  text-align: left !important; padding: 6px 8px !important;
+  font-family: 'Space Mono', monospace !important; font-size: 8px !important;
+  letter-spacing: 1px !important; color: #555 !important; font-weight: 400 !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+.bt-table tr:nth-child(3) { background: rgba(155,107,255,0.07) !important; }
+.bt-note {
+  font-size: 10px !important; line-height: 1.8 !important; color: var(--muted) !important;
+  border-top: 1px solid var(--border) !important; padding-top: 11px !important;
+}
+.bt-err { padding: 18px !important; color: var(--accent2) !important; font-size: 11px !important; }
 </style>
 </head>
 <body>
@@ -1060,6 +1101,38 @@ header {
   </div><!-- /appSectionAlgoLab -->
 
   <!-- ── Hall of Fame — always visible below tabs ──────────────────────── -->
+  <!-- ── 🔬 Backtest ──────────────────────────────────────────── -->
+  <div id="btSection" style="padding:32px;border-top:1px solid rgba(155,107,255,0.3);">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:6px;">
+      <div>
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;letter-spacing:-0.3px;">🔬 <span style="color:#9b6bff;">BACKTEST</span></div>
+        <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-top:4px;line-height:1.6;max-width:640px;">
+          Replays the strategy over years of history. Live reports collect ~25 trades a month — far too few to
+          tell an edge from noise. A decade gives thousands, which is enough to actually know.
+        </div>
+      </div>
+      <span id="btStatus" style="font-family:'Space Mono',monospace;font-size:10px;color:#9b6bff;letter-spacing:1px;"></span>
+    </div>
+
+    <div class="pf-controls">
+      <label>YEARS <input id="btYears" type="number" value="10" min="2" max="10" step="1"></label>
+      <label>CAPITAL <span>$</span><input id="btCapital" type="number" value="10000" min="100" step="500"></label>
+      <label>POSITIONS <input id="btSlots" type="number" value="10" min="1" max="50"></label>
+      <label>HOLD DAYS <input id="btHold" type="number" value="14" min="1" max="90"></label>
+      <label>COST BPS <input id="btCost" type="number" value="10" min="0" max="100" step="1"></label>
+      <button id="btRunBtn" class="bt-btn" onclick="runBacktest()">▶ RUN BACKTEST</button>
+    </div>
+
+    <div id="btResults">
+      <div style="padding:22px;border:1px dashed var(--border);border-radius:10px;font-size:11px;color:var(--muted);line-height:1.7;">
+        Loads daily history for the whole scan universe and replays the exact Golden Bull rules day by day —
+        same hard gates, same scoring, same requirement that both engines agree — with transaction costs charged
+        and a train/test split so the result is not just a description of the past it was built on.
+        Takes a couple of minutes.
+      </div>
+    </div>
+  </div>
+
   <!-- ── 💼 Mock portfolio ─────────────────────────────────────── -->
   <div id="pfSection" style="padding:32px;border-top:1px solid rgba(0,255,136,0.25);">
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:6px;">
@@ -1192,5 +1265,6 @@ header {
 <script src="js/auth.js?v=31"></script>
 <script src="js/watchlist.js?v=31"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
+<script src="js/backtest.js"></script>
 </body>
 </html>

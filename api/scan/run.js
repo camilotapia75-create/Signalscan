@@ -100,6 +100,11 @@ async function fetchYF(ticker) {
 // ── Load learned weights from Supabase ────────────────────────────────────────
 
 async function loadSignalWeights() {
+  // Frozen alongside the report's tuner — see api/scan/report.js LEARNING_ENABLED.
+  if (process.env.LEARNING_ENABLED !== 'true') {
+    console.log('[scan/run] learned weights frozen — scoring with defaults');
+    return {};
+  }
   if (!SUPABASE_SERVICE) return {};
   try {
     const res = await fetch(

@@ -1001,9 +1001,16 @@ const SIGNAL_BASE = {
   obv_rising: 2, volume_expanding: 1, spy_outperform: 2, spy_underperform: -1,
   bb_constructive: 1, bb_extended: -1,
 };
+// Learned weights are FROZEN. The 5-day tuner was adjusting 5-6 of 14 signals
+// every cycle, which is what chance alone produces at the gate it was using, so
+// the stored weights are drift rather than learning. Until a multi-year
+// backtest demonstrates a real edge, score with the original defaults.
+const USE_LEARNED_WEIGHTS = false;
+
 let _learnedW = null, _learnedAt = 0;
 
 async function loadLearnedWeights() {
+  if (!USE_LEARNED_WEIGHTS) { _learnedW = {}; _learnedAt = Date.now(); return _learnedW; }
   if (_learnedW && Date.now() - _learnedAt < 10 * 60 * 1000) return _learnedW;
   const w = {};
   try {

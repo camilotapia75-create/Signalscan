@@ -18,11 +18,22 @@ const RESEND_KEY       = process.env.RESEND_API_KEY;
 const REPORT_TO        = process.env.REPORT_TO_EMAIL || 'camilotapia75@gmail.com';
 const REPORT_FROM      = process.env.REPORT_FROM_EMAIL || 'Signalscan <reports@signalscan.io>';
 
+// ── Learning switch ──────────────────────────────────────────────────────────
+// OFF by default. The loop was adjusting 5-6 of 14 signals every cycle, which
+// is exactly what pure chance produces at the old 1-SE gate (14 x 31.7% = 4.4
+// expected false positives per run). Months of "learning" were weight drift on
+// noise. With ~50 matured outcomes and ~5% volatility per 14-day trade, the
+// smallest edge this data can even detect is ~1.4%/trade (~43% annualized), so
+// nothing realistic is measurable here. Re-enable only when a backtest over
+// years of history shows a real edge.
+const LEARNING_ENABLED = process.env.LEARNING_ENABLED === 'true';
+
 // Learning guardrails
 const MIN_SAMPLES   = 15;     // per signal, and per comparison group
 const WEIGHT_DECAY  = 0.03;   // pull toward default each cycle
 const HORIZON_DAYS  = 14;     // fixed holding period for cohort scoring
 const WIN_THRESHOLD = 0;      // a "win" = beat the market over the same window
+const SIGNIFICANCE_SE = 2.9;  // Bonferroni across 14 simultaneous signal tests
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 let _crumb = '', _cookie = '', _crumbAt = 0;
@@ -385,7 +396,11 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
         return arr.reduce((a, b) => a + (b - m) ** 2, 0) / (arr.length - 1);
       };
       const se = Math.sqrt(variance(s.returns) / s.count + variance(outReturns) / outCount);
-      significant = se > 0 ? Math.abs(edge) >= se : false;
+      // 14 signals are tested every cycle, so a per-test threshold has to be
+      // corrected for multiple comparisons or false positives are guaranteed.
+      // 1.0 SE fires 31.7% of the time on a zero-edge signal (4.4 of 14 per
+      // run). Bonferroni at 5% across 14 tests needs ~2.9 SE.
+      significant = se > 0 ? Math.abs(edge) >= SIGNIFICANCE_SE * se : false;
       if (significant) effectiveness = winEdge * 1.5 + (edge / 25);
     }
     // Too few picks without the signal means it fired on nearly everything, so
@@ -433,6 +448,11 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
     });
   }
 
+  if (!LEARNING_ENABLED) {
+    console.log(`[scan/report] LEARNING FROZEN — ${changes.length} change(s) proposed but not applied`);
+    return { changes, eligibleCount: eligible.length, signalsAnalyzed: Object.keys(stats).length, frozen: true };
+  }
+
   // Write updated weights to Supabase — no human in the loop
   if (upserts.length && SUPABASE_SERVICE) {
     try {
@@ -456,6 +476,44 @@ async function analyzeAndUpdateWeights(hofWithOutcomes, currentWeights) {
   }
 
   return { changes, eligibleCount: eligible.length, signalsAnalyzed: Object.keys(stats).length };
+}
+
+
+// ── Verdict ──────────────────────────────────────────────────────────────────
+// Reports used to bury the answer in a table. State it at the top, in plain
+// words, including when the answer is "this is not working" — the whole point
+// of measuring is to be told when to stop.
+function buildVerdict(perfStats, weightResult) {
+  const { avgAlpha = 0, cohorts = [], maturedCount = 0, portfolio = null } = perfStats;
+  const scored = cohorts.filter(c => c.avgAlpha !== null);
+  const negCohorts = scored.filter(c => c.avgAlpha < 0).length;
+
+  const issues = [];
+  if (maturedCount < MIN_SAMPLES * 2) {
+    issues.push(`Only ${maturedCount} picks have completed the ${HORIZON_DAYS}-day window — too few to conclude anything either way.`);
+  }
+  if (avgAlpha < 0) {
+    issues.push(`Picks are behind the S&P by ${Math.abs(avgAlpha).toFixed(2)}% over the days they were held.`);
+  }
+  if (scored.length >= 3 && negCohorts > scored.length / 2) {
+    issues.push(`${negCohorts} of ${scored.length} time periods underperformed the market, so this is not one bad week.`);
+  }
+  if (portfolio && portfolio.spyEquity !== null && portfolio.equity < portfolio.spyEquity) {
+    issues.push(`The mock portfolio trails simply holding the index by ${(portfolio.spyEquity - portfolio.equity).toFixed(2)} dollars.`);
+  }
+
+  // Honest statistical context: what could this sample size even detect?
+  const detectable = maturedCount > 1 ? (1.96 * 5.0 / Math.sqrt(maturedCount)) : null;
+
+  let level, headline;
+  if (issues.length >= 3)      { level = 'bad';     headline = 'NO EVIDENCE OF AN EDGE — DO NOT RISK MONEY ON THIS'; }
+  else if (issues.length >= 1) { level = 'warn';    headline = 'NOT DEMONSTRATING AN EDGE YET'; }
+  else                         { level = 'ok';      headline = 'AHEAD OF THE MARKET THIS PERIOD'; }
+
+  return {
+    level, headline, issues, detectable,
+    frozen: !!weightResult.frozen,
+  };
 }
 
 // ── Email ─────────────────────────────────────────────────────────────────────
@@ -493,6 +551,24 @@ function buildEmail(perfStats, weightResult, scanLogs) {
       <td style="padding:4px 8px;font-weight:700;color:${color};">${t.pct >= 0 ? '+' : ''}${t.pct.toFixed(1)}%</td>
     </tr>`;
   }).join('');
+
+  const v = buildVerdict(perfStats, weightResult);
+  const vCol = v.level === 'bad' ? '#ff4d4d' : v.level === 'warn' ? '#ffb340' : '#00ff88';
+  const verdictBlock = `
+    <div style="background:${v.level === 'ok' ? '#0d1a12' : '#1a0d0d'};border:1px solid ${vCol};padding:16px;margin-bottom:20px;">
+      <div style="font-size:14px;font-weight:700;color:${vCol};letter-spacing:0.5px;">${v.level === 'ok' ? '✓' : '⚠'} ${v.headline}</div>
+      ${v.issues.length ? `<ul style="margin:10px 0 0;padding-left:18px;color:#c9d1d9;font-size:11px;line-height:1.8;">
+        ${v.issues.map(i => `<li>${i}</li>`).join('')}
+      </ul>` : ''}
+      ${v.detectable ? `<div style="font-size:10px;color:#888;margin-top:10px;line-height:1.6;">
+        With ${maturedCount} completed trades the smallest edge this data could detect is
+        <strong style="color:#e0e0e0;">${v.detectable.toFixed(2)}% per trade</strong>. Anything smaller is invisible here,
+        so an inconclusive result is expected until there are hundreds of trades, not dozens.
+      </div>` : ''}
+      ${v.frozen ? `<div style="font-size:10px;color:#ffb340;margin-top:8px;">
+        ⏸ Weight auto-tuning is FROZEN. Changes below are proposals only and were not applied.
+      </div>` : ''}
+    </div>`;
 
   const money = n => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const portfolioBlock = portfolio ? `
@@ -578,6 +654,8 @@ function buildEmail(perfStats, weightResult, scanLogs) {
     <div style="font-size:20px;font-weight:700;color:#00ff88;margin-top:4px;">📊 5-DAY SYSTEM UPDATE</div>
     <div style="font-size:10px;color:#666;margin-top:4px;">${reportDate} · Algorithm self-adjusted based on ${eligibleCount} tracked outcomes</div>
   </div>
+
+  ${verdictBlock}
 
   ${portfolioBlock}
 
@@ -932,7 +1010,9 @@ export default async function handler(req, res) {
 
     // ── Send email ────────────────────────────────────────────────────────────
     const date    = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const subject = `Signalscan ${date} — ${avgAlpha >= 0 ? '+' : ''}${avgAlpha.toFixed(1)}% vs S&P · ${weightResult.changes.length} signals adjusted`;
+    const verdict = buildVerdict(perfStats, weightResult);
+    const flag    = verdict.level === 'bad' ? '⚠ NO EDGE — ' : verdict.level === 'warn' ? '⚠ ' : '';
+    const subject = `Signalscan ${date} — ${flag}${avgAlpha >= 0 ? '+' : ''}${avgAlpha.toFixed(1)}% vs S&P`;
     const html    = buildEmail(perfStats, weightResult, scanLogs);
     const sent    = await sendEmail(subject, html);
 
