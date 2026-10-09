@@ -542,6 +542,20 @@ async function runBacktest() {
     const spyTest  = spyCloses.slice(splitIdx);
     const emaTest  = spyEma200.slice(splitIdx);
 
+    // Second strategy family: cross-sectional momentum. Different hypothesis
+    // class entirely — relative ranking over months rather than absolute
+    // technical thresholds over days — and the most replicated anomaly in the
+    // literature. If even this shows nothing on this universe, the universe
+    // itself (mega-cap, maximally analysed) is the binding constraint.
+    const momConfigs = [
+      { key: 'mom12-1',     name: 'Momentum 12-1mo, monthly rebalance',
+        opts: { lookback: 252, skip: 21, rebalance: 21 } },
+      { key: 'mom6-1',      name: 'Momentum 6-1mo, monthly rebalance',
+        opts: { lookback: 126, skip: 21, rebalance: 21 } },
+      { key: 'mom12-1+trend', name: 'Momentum 12-1mo + above own 200-day',
+        opts: { lookback: 252, skip: 21, rebalance: 21, trendFilter: true } },
+    ];
+
     const results = configs.map(c => {
       setStatus(`TESTING ${c.key}`);
       const inS  = btPortfolio(allSignals.filter(x => x.i < splitIdx), barsByTicker,
@@ -549,10 +563,21 @@ async function runBacktest() {
                                { ...base, ...c.opts, spyEma200 });
       const outS = btPortfolio(sigsTest, barsTest, calTest, spyTest,
                                { ...base, ...c.opts, spyEma200: emaTest });
-      return { ...c, inSample: inS, outSample: outS };
+      return { ...c, family: 'Golden Bull', inSample: inS, outSample: outS };
     });
 
-    out.innerHTML = renderBacktest(results, allSignals.length, tickers.length, calendar, costBps, splitIdx);
+    for (const c of momConfigs) {
+      setStatus(`TESTING ${c.key}`);
+      const inS  = btMomentum(barsByTicker, calendar.slice(0, splitIdx), spyCloses.slice(0, splitIdx),
+                              { ...base, ...c.opts, spyEma200 });
+      const outS = btMomentum(barsTest, calTest, spyTest, { ...base, ...c.opts, spyEma200: emaTest });
+      results.push({ ...c, family: 'Momentum', why: '', inSample: inS, outSample: outS });
+    }
+
+    // Fair control: owning every name in this universe equally, doing nothing.
+    const ewFull = btEqualWeight(barsTest, calTest);
+
+    out.innerHTML = renderBacktest(results, allSignals.length, tickers.length, calendar, costBps, splitIdx, ewFull);
     setStatus('');
   } catch (e) {
     out.innerHTML = `<div class="bt-err">Backtest failed: ${e.message}</div>`;
@@ -575,7 +600,7 @@ function barsByTicker0(bars, from) {
   return out;
 }
 
-function renderBacktest(results, signalCount, tickerCount, calendar, costBps, splitIdx) {
+function renderBacktest(results, signalCount, tickerCount, calendar, costBps, splitIdx, equalWeight) {
   const pc = n => (n === null || n === undefined) ? '—' : (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
   const col = n => n >= 0 ? 'var(--accent)' : 'var(--accent2)';
   const years = (calendar.length / 252).toFixed(1);
@@ -583,12 +608,19 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
 
   // Rank on out-of-sample excess return over buy-and-hold. In-sample is ignored
   // entirely — it describes the past the strategy was shaped around.
+  // Beat the HARDER of the two benchmarks. Beating SPY while losing to an
+  // equal-weight basket of the same universe is not skill — it is just owning
+  // a basket that happened to outrun the index.
+  const ewCagr = equalWeight ? equalWeight.cagr : null;
+  const bench = r => Math.max(r.outSample.spyCagr ?? -999, ewCagr ?? -999);
   const scored = results.map(r => ({
     ...r,
-    excess: (r.outSample.spyCagr === null) ? -999 : r.outSample.cagr - r.outSample.spyCagr,
+    excess: (r.outSample.spyCagr === null) ? -999 : r.outSample.cagr - bench(r),
   })).sort((a, b) => b.excess - a.excess);
   const best = scored[0];
   const baseline = results.find(r => r.key === 'fixed');
+  const benchLabel = (ewCagr !== null && ewCagr > (best?.outSample.spyCagr ?? -999))
+    ? 'an equal-weight basket of the same universe' : 'the index';
 
   // Four hypotheses were tested, so the bar for calling any of them real has to
   // account for that. Bonferroni: 0.05 / 4.
@@ -610,7 +642,9 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
         : `Its average trade beat the index by ${pc(best.outSample.avgExcess)}, p = ${best.outSample.pValue.toFixed(3)}, above the ${ALPHA.toFixed(4)} bar required once four hypotheses are tested — so this could still be chance.`);
   } else {
     level = 'bad'; headline = 'NO VARIANT BEATS SIMPLY HOLDING THE INDEX';
-    detail = `The best of the four, ${best.name}, returned ${pc(best.outSample.cagr)} a year out of sample against ${pc(best.outSample.spyCagr)} for buy-and-hold. Changing the exit rule was a real hypothesis and it did not rescue the strategy.`;
+    detail = `The best of ${results.length}, ${best.name}, returned ${pc(best.outSample.cagr)} a year out of sample against ${pc(best.outSample.spyCagr)} for the index` +
+      (ewCagr !== null ? ` and ${pc(ewCagr)} for simply owning this universe equally` : '') +
+      `. Two different strategy families were tested and neither cleared ${benchLabel}.`;
   }
 
   const delta = (baseline && best.key !== 'fixed')
@@ -625,7 +659,7 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
   const row = (r, isBest) => {
     const o = r.outSample;
     return `<tr style="${isBest ? 'background:rgba(155,107,255,0.10);' : ''}">
-      <td style="padding:6px 8px;">${isBest ? '★ ' : ''}${r.name}</td>
+      <td style="padding:6px 8px;"><span style="color:#555;font-size:9px;">${r.family}</span><br>${isBest ? '★ ' : ''}${r.name}</td>
       <td style="padding:6px 8px;">${o.trades.toLocaleString()}</td>
       <td style="padding:6px 8px;color:#666;">${o.avgHold.toFixed(0)}d</td>
       <td style="padding:6px 8px;color:#666;">${o.exposure.toFixed(0)}%</td>
@@ -655,7 +689,7 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
 
     <div class="bt-meta">
       ${years} years · ${oosYears}y out of sample · ${tickerCount} tickers · ${signalCount.toLocaleString()} signals ·
-      ${costBps} bps per side · ${results.length} pre-specified hypotheses · significance bar ${ALPHA.toFixed(4)}
+      ${costBps} bps per side · ${results.length} pre-specified hypotheses across 2 strategy families · significance bar ${ALPHA.toFixed(4)}
     </div>
 
     ${delta}
@@ -667,6 +701,14 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
         <th>BUY &amp; HOLD</th><th>VS MARKET</th><th>AVG EXCESS/TRADE</th><th>EFF. N</th><th>WIN%</th><th>MAX DD</th><th>SHARPE</th><th>P-VALUE</th>
       </tr>
       ${scored.map((r, i) => row(r, i === 0)).join('')}
+      ${equalWeight ? `<tr style="border-top:2px solid var(--border);">
+        <td style="padding:6px 8px;color:var(--gold);"><span style="color:#555;font-size:9px;">CONTROL</span><br>Own all ${equalWeight.members} names equally, do nothing</td>
+        <td style="padding:6px 8px;color:#666;">0</td><td style="padding:6px 8px;color:#666;">—</td>
+        <td style="padding:6px 8px;color:#666;">100%</td>
+        <td style="padding:6px 8px;font-weight:700;color:var(--gold);">${pc(ewCagr)}</td>
+        <td style="padding:6px 8px;color:var(--muted);">${pc(scored[0]?.outSample.spyCagr)}</td>
+        <td colspan="6" style="padding:6px 8px;color:#666;">no trading, no costs — the bar any picker must clear</td>
+      </tr>` : ''}
     </table>
 
     <div style="font-size:8px;color:#555;letter-spacing:2px;margin:16px 0 6px;">IN-SAMPLE (SHOWN ONLY TO EXPOSE OVERFITTING)</div>
@@ -689,4 +731,144 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
       holds: 35 trades averaging 144 days in one market are nowhere near 35 independent observations, and
       the p-value is computed against that reduced count.
     </div>`;
+}
+
+// ── Equal-weight universe benchmark ──────────────────────────────────────────
+// Comparing to SPY alone was not a fair control. This universe is tech and
+// growth heavy, so if the basket itself outran the index over the decade, then
+// ANY strategy drawing from it inherits that and "beats SPY" without any skill.
+// The honest question is whether picking beats owning the same names equally.
+function btEqualWeight(barsByTicker, dates) {
+  const tickers = Object.keys(barsByTicker);
+  const curve = new Array(dates.length).fill(0);
+  let live = 0;
+  for (const tk of tickers) {
+    const c = barsByTicker[tk].closes;
+    const first = c.findIndex(v => v != null);
+    if (first < 0 || first > dates.length * 0.1) continue;   // must exist near the start
+    live++;
+    const base = c[first];
+    for (let i = 0; i < dates.length; i++) {
+      const v = c[i] ?? c[first];
+      curve[i] += v / base;
+    }
+  }
+  if (!live) return null;
+  for (let i = 0; i < curve.length; i++) curve[i] /= live;
+  const years = dates.length / 252;
+  const total = curve[curve.length - 1] / curve[0];
+  return { cagr: (Math.pow(total, 1 / years) - 1) * 100, curve, members: live };
+}
+
+// ── Cross-sectional momentum ─────────────────────────────────────────────────
+// A genuinely different hypothesis, not a tweak of the last one. The Golden Bull
+// rules are ABSOLUTE technical thresholds on daily bars over two weeks. The
+// momentum anomaly (Jegadeesh & Titman, 1993) is RELATIVE ranking across a
+// universe over 3-12 months, and it is among the most replicated effects in
+// finance — it survived out of sample for decades after publication, which is
+// more than can be said for any indicator crossover.
+//
+// Standard construction: rank by return over `lookback` days skipping the most
+// recent `skip` days (short-term reversal pollutes the signal), hold the top N,
+// rebalance monthly.
+function btMomentum(barsByTicker, dates, spyCloses, opts) {
+  const { capital, slots, costBps, lookback, skip, rebalance, trendFilter, spyEma200 } = opts;
+  const cost = (costBps || 0) / 10000;
+  const tickers = Object.keys(barsByTicker);
+  const ema200 = {};
+  if (trendFilter) for (const tk of tickers) ema200[tk] = btEMA(barsByTicker[tk].closes.map(v => v ?? 0), 200);
+
+  let cash = capital;
+  let held = [];                 // { ticker, shares, entryIdx, entryPx }
+  const trades = [], curve = [];
+  const START = Math.max(lookback + skip + 5, 210);
+
+  for (let i = 0; i < dates.length; i++) {
+    const isRebal = i >= START && (i - START) % rebalance === 0;
+
+    if (isRebal) {
+      // Liquidate everything, then rebuild. Simple, and it charges full costs.
+      for (const h of held) {
+        const px = barsByTicker[h.ticker].closes[i];
+        if (px == null) continue;
+        const proceeds = h.shares * px * (1 - cost);
+        cash += proceeds;
+        const size = capital / slots;
+        const ret = (proceeds - h.cost) / h.cost;
+        const sIn = spyCloses[h.entryIdx], sOut = spyCloses[i];
+        const spyRet = (sIn && sOut) ? (sOut - sIn) / sIn : 0;
+        trades.push({ ticker: h.ticker, held: i - h.entryIdx, ret, spyRet, excess: ret - spyRet });
+      }
+      held = [];
+
+      const regimeOk = !opts.regimeFilter || !spyEma200 ||
+        (spyCloses[i] != null && spyEma200[i] != null && spyCloses[i] > spyEma200[i]);
+
+      if (regimeOk) {
+        const ranked = [];
+        for (const tk of tickers) {
+          const c = barsByTicker[tk].closes;
+          const now = c[i - skip], then = c[i - skip - lookback];
+          if (now == null || then == null || then <= 0) continue;
+          if (trendFilter && !(c[i] != null && ema200[tk][i] != null && c[i] > ema200[tk][i])) continue;
+          ranked.push({ tk, mom: (now - then) / then });
+        }
+        ranked.sort((a, b) => b.mom - a.mom);
+        const picks = ranked.slice(0, slots);
+        const size = cash / Math.max(1, picks.length);
+        for (const p of picks) {
+          const px = barsByTicker[p.tk].closes[i];
+          if (px == null) continue;
+          const spend = Math.min(size, cash);
+          if (spend <= 0) continue;
+          cash -= spend;
+          held.push({ ticker: p.tk, shares: spend / (px * (1 + cost)), entryIdx: i, cost: spend });
+        }
+      }
+    }
+
+    let mv = 0;
+    for (const h of held) {
+      const px = barsByTicker[h.ticker].closes[i];
+      mv += px != null ? h.shares * px : h.cost;
+    }
+    curve.push(cash + mv);
+  }
+
+  return btStats(curve, trades, dates, capital, spyCloses);
+}
+
+// Shared statistics so every strategy family is judged identically.
+function btStats(curve, trades, dates, capital, spyCloses) {
+  const equity = curve[curve.length - 1];
+  const rets = trades.map(t => t.ret);
+  const exc  = trades.map(t => t.excess);
+  const n = rets.length;
+  const mean = n ? rets.reduce((a, b) => a + b, 0) / n : 0;
+  const sd = n > 1 ? Math.sqrt(rets.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1)) : 0;
+  const mExc = n ? exc.reduce((a, b) => a + b, 0) / n : 0;
+  const sdExc = n > 1 ? Math.sqrt(exc.reduce((a, b) => a + (b - mExc) ** 2, 0) / (n - 1)) : 0;
+  const avgHold = n ? trades.reduce((a, t) => a + t.held, 0) / n : 1;
+  const effN = Math.max(1, Math.min(n, dates.length / Math.max(1, avgHold)));
+  const tStat = (n > 1 && sdExc > 0) ? mExc / (sdExc / Math.sqrt(effN)) : 0;
+  const pValue = 2 * (1 - btNormCdf(Math.abs(tStat)));
+
+  let peak = curve[0], maxDD = 0;
+  for (const v of curve) { if (v > peak) peak = v; const dd = (peak - v) / peak; if (dd > maxDD) maxDD = dd; }
+  const dr = [];
+  for (let i = 1; i < curve.length; i++) dr.push(curve[i] / curve[i - 1] - 1);
+  const dm = dr.length ? dr.reduce((a, b) => a + b, 0) / dr.length : 0;
+  const dsd = dr.length > 1 ? Math.sqrt(dr.reduce((a, b) => a + (b - dm) ** 2, 0) / (dr.length - 1)) : 0;
+  const sharpe = dsd > 0 ? (dm / dsd) * Math.sqrt(252) : 0;
+  const years = dates.length / 252;
+  const cagr = years > 0 && equity > 0 ? (Math.pow(equity / capital, 1 / years) - 1) * 100 : 0;
+  const spyStart = spyCloses.find(v => v != null), spyEnd = [...spyCloses].reverse().find(v => v != null);
+  const spyEquity = (spyStart && spyEnd) ? capital * (spyEnd / spyStart) : null;
+  const spyCagr = (spyEquity && years > 0) ? (Math.pow(spyEquity / capital, 1 / years) - 1) * 100 : null;
+  const exposure = Math.min(100, (n * avgHold) / (dates.length * 10) * 100);
+
+  return { equity, capital, cagr, spyEquity, spyCagr, trades: n,
+           winRate: n ? Math.round(rets.filter(r => r > 0).length / n * 100) : 0,
+           avgTrade: mean * 100, avgExcess: mExc * 100, effN: Math.round(effN),
+           tStat, pValue, maxDrawdown: maxDD * 100, sharpe, avgHold, exposure, years, curve };
 }

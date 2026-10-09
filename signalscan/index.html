@@ -745,6 +745,20 @@ header {
   border-top: 1px solid var(--border) !important; padding-top: 11px !important;
 }
 .bt-err { padding: 18px !important; color: var(--accent2) !important; font-size: 11px !important; }
+
+.honesty-note {
+  margin-top: 12px !important;
+  background: rgba(255,179,64,0.06) !important;
+  border: 1px solid rgba(255,179,64,0.3) !important;
+  border-radius: 8px !important;
+  padding: 12px 14px !important;
+  font-size: 11px !important;
+  line-height: 1.8 !important;
+  color: #c9d1d9 !important;
+  letter-spacing: 0 !important;
+  max-width: 760px !important;
+}
+.honesty-note strong { color: #ffb340 !important; }
 </style>
 </head>
 <body>
@@ -752,7 +766,7 @@ header {
 <div id="ambientBlob2"></div>
 <header>
   <div class="logo">SIGNAL<span>SCAN</span></div>
-  <div style="font-size:10px;color:var(--muted);letter-spacing:2px;">FREE TECHNICAL ANALYSIS</div>
+  <div style="font-size:10px;color:var(--muted);letter-spacing:2px;">TECHNICAL ANALYSIS &amp; STRATEGY TESTING</div>
   <div id="headerActions">
     <button id="howItWorksBtn" onclick="toggleHowItWorks()" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--muted)'">HOW IT WORKS</button>
     <div style="position:relative;">
@@ -904,7 +918,15 @@ header {
     <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;margin-bottom:20px;">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:22px;">🐂 GOLDEN BULL <span style="color:var(--gold);">SCANNER</span></div>
-        <div style="font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:1px;line-height:1.7;">SCANS 150+ TOP STOCKS &amp; CRYPTO · FINDS STOCKS WHERE BOTH ENGINES AGREE <span style="color:var(--accent);">BULLISH</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;letter-spacing:1px;line-height:1.7;">SCANS 150+ TOP STOCKS &amp; CRYPTO · SURFACES NAMES WHERE BOTH TECHNICAL ENGINES READ <span style="color:var(--accent);">BULLISH</span></div>
+        <div class="honesty-note">
+          <strong>What this is, and what it isn't.</strong> These are technical setups, not predictions.
+          We backtested these exact signals over 10 years, 179 tickers and 888 trades — and they did
+          <strong>not</strong> beat simply buying an index fund and holding it. Average return per trade
+          over the market was statistically indistinguishable from zero. Use this to find names worth
+          researching, not as a reason to buy. Run the
+          <a href="#btSection" style="color:var(--accent);">backtest</a> yourself — the numbers are not hidden.
+        </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
         <div style="display:flex;gap:0;border:1px solid var(--border);">
@@ -1160,7 +1182,7 @@ header {
   </div>
 
   <div id="hofSection" style="display:none;padding:32px;border-top:1px solid var(--border);">
-    <div id="hofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;">🏆 GOLDEN BULL HALL OF FAME</div>
+    <div id="hofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;">📋 GOLDEN BULL — TRACKED OUTCOMES</div>
     <div id="hofSubtitle" style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:20px;">ALL-TIME · <span id="hofTotalCount">0</span> TOTAL SIGNALS DETECTED</div>
     <div style="overflow-x:auto;">
       <table style="width:100%;font-size:11px;border-collapse:collapse;">
@@ -1181,7 +1203,7 @@ header {
 
   <!-- ── Bull Pen Hall of Fame ─────────────────────── -->
   <div id="bpHofSection" style="display:none;padding:32px;border-top:1px solid rgba(255,140,80,0.3);">
-    <div id="bpHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#ff9055;">🧪 BULL PEN HALL OF FAME</div>
+    <div id="bpHofTitle" style="font-family:'Syne',sans-serif;font-weight:800;font-size:13px;letter-spacing:2px;margin-bottom:4px;color:#ff9055;">📋 BULL PEN — TRACKED OUTCOMES</div>
     <div id="bpHofSubtitle" style="font-size:10px;color:rgba(255,150,80,0.7);letter-spacing:1px;margin-bottom:20px;">EXPERIMENTAL FORMULA · <span id="bpHofCount">0</span> SIGNALS DETECTED</div>
     <div style="overflow-x:auto;">
       <table style="width:100%;font-size:11px;border-collapse:collapse;">
