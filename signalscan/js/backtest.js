@@ -326,11 +326,18 @@ function btAlign(src, srcTs, calendar) {
   return out;
 }
 
-async function btFetch(ticker, years) {
+async function btFetch(ticker, years, attempt = 0) {
   const range = years >= 10 ? '10y' : years >= 5 ? '5y' : '2y';
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=${range}`;
   try {
     const res = await fetch(`/api/proxy?url=${encodeURIComponent(url)}`);
+    // A burst of ~200 requests can trip Yahoo's rate limiter. Without a retry
+    // those tickers vanish silently and the backtest quietly runs on a smaller,
+    // biased universe — so back off and try again before giving up.
+    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+      await new Promise(r => setTimeout(r, 800 * Math.pow(2, attempt)));
+      return btFetch(ticker, years, attempt + 1);
+    }
     if (!res.ok) return null;
     const j = await res.json();
     const r = j?.chart?.result?.[0];
@@ -346,7 +353,13 @@ async function btFetch(ticker, years) {
       volumes.push(q.volume?.[i] ?? 0);
     }
     return closes.length > 250 ? { ts, closes, highs, lows, volumes } : null;
-  } catch (_) { return null; }
+  } catch (_) {
+    if (attempt < 3) {
+      await new Promise(r => setTimeout(r, 800 * Math.pow(2, attempt)));
+      return btFetch(ticker, years, attempt + 1);
+    }
+    return null;
+  }
 }
 
 async function runBacktest() {
@@ -396,7 +409,14 @@ async function runBacktest() {
     if (_btCancel) { setStatus('CANCELLED'); return; }
 
     const tickers = Object.keys(barsByTicker);
-    if (tickers.length < 20) { out.innerHTML = '<div class="bt-err">Too few tickers loaded to backtest.</div>'; return; }
+    const coverage = Math.round(tickers.length / universe.length * 100);
+    if (tickers.length < 20) {
+      out.innerHTML = `<div class="bt-err">Only ${tickers.length} of ${universe.length} tickers loaded — market data is being rate-limited. Wait a minute and try again.</div>`;
+      return;
+    }
+    if (coverage < 70) {
+      console.warn(`[backtest] only ${tickers.length}/${universe.length} tickers loaded (${coverage}%) — results cover a partial universe`);
+    }
 
     // Forward-fill gaps so indicators do not see holes
     const spyCloses = btAlign(spy.closes, spy.ts, calendar);
