@@ -288,8 +288,14 @@ function btPortfolio(allSignals, barsByTicker, dates, spyCloses, opts) {
       // testing raw returns against zero measures market exposure, not skill.
       const sIn = spyCloses[o.entryIdx], sOut = spyCloses[i];
       const spyRet = (sIn && sOut) ? (sOut - sIn) / sIn : 0;
+      // Benchmark each trade against the UNIVERSE over the same days, not the
+      // index. Beating SPY while picking from a basket that beat SPY is not
+      // stock selection — it is owning the basket.
+      const bc = opts.benchCurve;
+      const bIn = bc?.[o.entryIdx], bOut = bc?.[i];
+      const uniRet = (bIn && bOut) ? (bOut - bIn) / bIn : spyRet;
       trades.push({ ticker: o.ticker, entryIdx: o.entryIdx, exitIdx: i, held,
-                    ret, spyRet, excess: ret - spyRet });
+                    ret, spyRet, uniRet, excess: ret - uniRet, excessSpy: ret - spyRet });
       open.splice(k, 1);
     }
 
@@ -538,6 +544,8 @@ async function runBacktest() {
         opts: { exitMode: 'trail', regimeFilter: true } },
     ];
 
+    const barsIn  = barsByTicker;              // full arrays; in-sample slices below
+    const ewIn  = btEqualWeight(barsByTicker, calendar.slice(0, splitIdx));
     const base = { capital, slots, holdDays, costBps, spyEma200 };
     const sigsTest = allSignals.filter(x => x.i >= splitIdx).map(x => ({ ...x, i: x.i - splitIdx }));
     const barsTest = barsByTicker0(barsByTicker, splitIdx);
@@ -565,28 +573,34 @@ async function runBacktest() {
         opts: { mode: 'reversal', lookback: 5, skip: 0, rebalance: 5 } },
     ];
 
+    const ewOutEarly = btEqualWeight(barsTest, calTest);
     const results = configs.map(c => {
       setStatus(`TESTING ${c.key}`);
       const inS  = btPortfolio(allSignals.filter(x => x.i < splitIdx), barsByTicker,
                                calendar.slice(0, splitIdx), spyCloses.slice(0, splitIdx),
-                               { ...base, ...c.opts, spyEma200 });
+                               { ...base, ...c.opts, spyEma200, benchCurve: ewIn?.curve });
       const outS = btPortfolio(sigsTest, barsTest, calTest, spyTest,
-                               { ...base, ...c.opts, spyEma200: emaTest });
+                               { ...base, ...c.opts, spyEma200: emaTest, benchCurve: ewOutEarly?.curve });
       return { ...c, family: 'Golden Bull', inSample: inS, outSample: outS };
     });
 
     for (const c of momConfigs) {
       setStatus(`TESTING ${c.key}`);
       const inS  = btMomentum(barsByTicker, calendar.slice(0, splitIdx), spyCloses.slice(0, splitIdx),
-                              { ...base, ...c.opts, spyEma200 });
-      const outS = btMomentum(barsTest, calTest, spyTest, { ...base, ...c.opts, spyEma200: emaTest });
+                              { ...base, ...c.opts, spyEma200, benchCurve: ewIn?.curve });
+      const outS = btMomentum(barsTest, calTest, spyTest,
+                              { ...base, ...c.opts, spyEma200: emaTest, benchCurve: ewOutEarly?.curve });
       results.push({ ...c, family: 'Momentum', why: '', inSample: inS, outSample: outS });
     }
 
     // Fair control: owning every name in this universe equally, doing nothing.
-    const ewFull = btEqualWeight(barsTest, calTest);
+    const ewFull = ewOutEarly;
+    for (const r of results) {
+      r.vsControlOut = ewFull ? r.outSample.cagr - ewFull.cagr : null;
+      r.vsControlIn  = ewIn   ? r.inSample.cagr  - ewIn.cagr   : null;
+    }
 
-    out.innerHTML = renderBacktest(results, allSignals.length, tickers.length, calendar, costBps, splitIdx, ewFull);
+    out.innerHTML = renderBacktest(results, allSignals.length, tickers.length, calendar, costBps, splitIdx, ewFull, ewIn);
     setStatus('');
   } catch (e) {
     out.innerHTML = `<div class="bt-err">Backtest failed: ${e.message}</div>`;
@@ -609,7 +623,7 @@ function barsByTicker0(bars, from) {
   return out;
 }
 
-function renderBacktest(results, signalCount, tickerCount, calendar, costBps, splitIdx, equalWeight) {
+function renderBacktest(results, signalCount, tickerCount, calendar, costBps, splitIdx, equalWeight, equalWeightIn) {
   const pc = n => (n === null || n === undefined) ? '—' : (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
   const col = n => n >= 0 ? 'var(--accent)' : 'var(--accent2)';
   const years = (calendar.length / 252).toFixed(1);
@@ -635,20 +649,24 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
   // account for that. Bonferroni: 0.05 / 4.
   const ALPHA = 0.05 / results.length;
   const beats = best.excess > 0;
+  const consistent = best.vsControlIn != null && best.vsControlIn > 0 && (best.vsControlOut ?? -1) > 0;
   const MIN_EFF_N = 30;   // too few independent observations to claim anything
   const thin  = best.outSample.effN < MIN_EFF_N;
   const sig   = !thin && best.outSample.pValue < ALPHA && best.outSample.avgExcess > 0;
 
   let level, headline, detail;
-  if (beats && sig) {
-    level = 'ok'; headline = 'A STRUCTURAL FIX CLEARS THE BAR';
+  if (beats && sig && consistent) {
+    level = 'ok'; headline = 'CLEARS THE BAR IN BOTH PERIODS';
     detail = `${best.name} beat buy-and-hold by ${pc(best.excess)} a year out of sample. Its average trade beat the index by ${pc(best.outSample.avgExcess)} over the same days, p = ${best.outSample.pValue.toFixed(4)} against a corrected bar of ${ALPHA.toFixed(4)}, across ${best.outSample.effN} independent observations. Worth pursuing — and worth re-testing on a locked holdout before trusting.`;
   } else if (beats) {
     level = 'warn'; headline = 'BEST VARIANT BEATS THE MARKET, BUT NOT YET PROVEN';
     detail = `${best.name} returned ${pc(best.outSample.cagr)} a year against ${pc(best.outSample.spyCagr)} for the index. ` +
       (thin
         ? `But it only produced ${best.outSample.effN} independent observations — long, overlapping holds in one market are not ${best.outSample.trades} separate pieces of evidence. Far too thin to call.`
-        : `Its average trade beat the index by ${pc(best.outSample.avgExcess)}, p = ${best.outSample.pValue.toFixed(3)}, above the ${ALPHA.toFixed(4)} bar required once four hypotheses are tested — so this could still be chance.`);
+        : `Against the universe itself its average trade added ${pc(best.outSample.avgExcess)}, p = ${best.outSample.pValue.toFixed(3)} — above the ${ALPHA.toFixed(4)} bar required once ${results.length} hypotheses are tested, so this could still be chance.` +
+          (best.vsControlIn != null
+            ? ` In the earlier period it was ${best.vsControlIn > 0 ? 'also ahead of' : 'BEHIND'} the control by ${pc(Math.abs(best.vsControlIn))}.`
+            : ''));
   } else {
     level = 'bad'; headline = 'NO VARIANT BEATS SIMPLY HOLDING THE INDEX';
     detail = `The best of ${results.length}, ${best.name}, returned ${pc(best.outSample.cagr)} a year out of sample against ${pc(best.outSample.spyCagr)} for the index` +
@@ -674,7 +692,8 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
       <td style="padding:6px 8px;color:#666;">${o.exposure.toFixed(0)}%</td>
       <td style="padding:6px 8px;font-weight:700;color:${col(o.cagr)};">${pc(o.cagr)}</td>
       <td style="padding:6px 8px;color:var(--muted);">${pc(o.spyCagr)}</td>
-      <td style="padding:6px 8px;font-weight:700;color:${col(o.cagr - (o.spyCagr ?? 0))};">${pc(o.cagr - (o.spyCagr ?? 0))}</td>
+      <td style="padding:6px 8px;font-weight:700;color:${col(r.vsControlOut ?? 0)};">${pc(r.vsControlOut)}</td>
+      <td style="padding:6px 8px;color:${col(r.vsControlIn ?? 0)};">${pc(r.vsControlIn)}</td>
       <td style="padding:6px 8px;font-weight:700;color:${col(o.avgExcess)};">${pc(o.avgExcess)}</td>
       <td style="padding:6px 8px;color:#666;">${o.effN}</td>
       <td style="padding:6px 8px;">${o.winRate}%</td>
@@ -707,7 +726,7 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
     <table class="bt-table">
       <tr>
         <th>EXIT RULE</th><th>TRADES</th><th>AVG HOLD</th><th>INVESTED</th><th>CAGR</th>
-        <th>BUY &amp; HOLD</th><th>VS MARKET</th><th>AVG EXCESS/TRADE</th><th>EFF. N</th><th>WIN%</th><th>MAX DD</th><th>SHARPE</th><th>P-VALUE</th>
+        <th>BUY &amp; HOLD</th><th>VS CONTROL (OOS)</th><th>VS CONTROL (IN)</th><th>EXCESS/TRADE vs UNIVERSE</th><th>EFF. N</th><th>WIN%</th><th>MAX DD</th><th>SHARPE</th><th>P-VALUE</th>
       </tr>
       ${scored.map((r, i) => row(r, i === 0)).join('')}
       ${equalWeight ? `<tr style="border-top:2px solid var(--border);">
@@ -716,7 +735,14 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
         <td style="padding:6px 8px;color:#666;">100%</td>
         <td style="padding:6px 8px;font-weight:700;color:var(--gold);">${pc(ewCagr)}</td>
         <td style="padding:6px 8px;color:var(--muted);">${pc(scored[0]?.outSample.spyCagr)}</td>
-        <td colspan="6" style="padding:6px 8px;color:#666;">no trading, no costs — the bar any picker must clear</td>
+        <td style="padding:6px 8px;color:#666;">—</td>
+        <td style="padding:6px 8px;color:#666;">—</td>
+        <td style="padding:6px 8px;color:#666;">—</td>
+        <td style="padding:6px 8px;color:#666;">—</td>
+        <td style="padding:6px 8px;color:#666;">—</td>
+        <td style="padding:6px 8px;color:var(--accent2);">-${(equalWeight.maxDrawdown ?? 0).toFixed(1)}%</td>
+        <td style="padding:6px 8px;color:var(--gold);">${(equalWeight.sharpe ?? 0).toFixed(2)}</td>
+        <td style="padding:6px 8px;color:#666;">no trading, no costs</td>
       </tr>` : ''}
     </table>
 
@@ -766,7 +792,16 @@ function btEqualWeight(barsByTicker, dates) {
   for (let i = 0; i < curve.length; i++) curve[i] /= live;
   const years = dates.length / 252;
   const total = curve[curve.length - 1] / curve[0];
-  return { cagr: (Math.pow(total, 1 / years) - 1) * 100, curve, members: live };
+  // The control needs its own risk numbers too. A strategy with lower CAGR but
+  // materially better Sharpe is still an edge — it can be levered to match.
+  let peak = curve[0], maxDD = 0;
+  for (const v of curve) { if (v > peak) peak = v; const dd = (peak - v) / peak; if (dd > maxDD) maxDD = dd; }
+  const dr = [];
+  for (let i = 1; i < curve.length; i++) dr.push(curve[i] / curve[i - 1] - 1);
+  const dm = dr.length ? dr.reduce((a, b) => a + b, 0) / dr.length : 0;
+  const dsd = dr.length > 1 ? Math.sqrt(dr.reduce((a, b) => a + (b - dm) ** 2, 0) / (dr.length - 1)) : 0;
+  return { cagr: (Math.pow(total, 1 / years) - 1) * 100, curve, members: live,
+           maxDrawdown: maxDD * 100, sharpe: dsd > 0 ? (dm / dsd) * Math.sqrt(252) : 0 };
 }
 
 // ── Cross-sectional momentum ─────────────────────────────────────────────────
@@ -806,7 +841,11 @@ function btMomentum(barsByTicker, dates, spyCloses, opts) {
         const ret = (proceeds - h.cost) / h.cost;
         const sIn = spyCloses[h.entryIdx], sOut = spyCloses[i];
         const spyRet = (sIn && sOut) ? (sOut - sIn) / sIn : 0;
-        trades.push({ ticker: h.ticker, held: i - h.entryIdx, ret, spyRet, excess: ret - spyRet });
+        const bc = opts.benchCurve;
+        const bIn = bc?.[h.entryIdx], bOut = bc?.[i];
+        const uniRet = (bIn && bOut) ? (bOut - bIn) / bIn : spyRet;
+        trades.push({ ticker: h.ticker, held: i - h.entryIdx, ret, spyRet, uniRet,
+                      excess: ret - uniRet, excessSpy: ret - spyRet });
       }
       held = [];
 
