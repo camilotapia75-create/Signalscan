@@ -759,6 +759,15 @@ header {
   max-width: 760px !important;
 }
 .honesty-note strong { color: #ffb340 !important; }
+
+.bt-select {
+  background: rgba(0,0,0,0.4) !important;
+  border: 1px solid rgba(155,107,255,0.3) !important;
+  border-radius: 6px !important; color: #e8edf2 !important;
+  font-family: 'Space Mono', monospace !important; font-size: 11px !important;
+  padding: 7px 9px !important; outline: none !important; cursor: pointer !important;
+}
+.bt-select:focus { border-color: #9b6bff !important; }
 </style>
 </head>
 <body>
@@ -1137,6 +1146,12 @@ header {
     </div>
 
     <div class="pf-controls">
+      <label>HUNTING GROUND
+        <select id="btUniverse" class="bt-select">
+          <option value="mega">Mega-cap (current scan universe)</option>
+          <option value="small">Small/mid-cap (less analysed)</option>
+        </select>
+      </label>
       <label>YEARS <input id="btYears" type="number" value="10" min="2" max="10" step="1"></label>
       <label>CAPITAL <span>$</span><input id="btCapital" type="number" value="10000" min="100" step="500"></label>
       <label>POSITIONS <input id="btSlots" type="number" value="10" min="1" max="50"></label>

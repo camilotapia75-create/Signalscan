@@ -447,8 +447,11 @@ async function runBacktest() {
     if (!spy) { out.innerHTML = '<div class="bt-err">Could not load SPY history — market data unavailable.</div>'; return; }
     const calendar = spy.ts;
 
-    const universe = [...new Set([...SCAN_UNIVERSE_CORE, ...ROTATION_POOL])]
-      .filter(t => !t.endsWith('-USD'));   // crypto has no comparable history here
+    const groundSel = document.getElementById('btUniverse')?.value || 'mega';
+    const universe = (groundSel === 'small'
+      ? SMALLCAP_UNIVERSE
+      : [...new Set([...SCAN_UNIVERSE_CORE, ...ROTATION_POOL])]
+    ).filter(t => !t.endsWith('-USD'));   // crypto has no comparable history here
 
     const barsByTicker = {};
     let done = 0, idx = 0;
@@ -554,6 +557,12 @@ async function runBacktest() {
         opts: { lookback: 126, skip: 21, rebalance: 21 } },
       { key: 'mom12-1+trend', name: 'Momentum 12-1mo + above own 200-day',
         opts: { lookback: 252, skip: 21, rebalance: 21, trendFilter: true } },
+      { key: 'high52',  name: '52-week-high proximity (George & Hwang)',
+        opts: { mode: 'high52', lookback: 252, skip: 0, rebalance: 21 } },
+      { key: 'lowvol',  name: 'Lowest trailing volatility (Ang et al.)',
+        opts: { mode: 'lowvol', lookback: 126, skip: 0, rebalance: 21 } },
+      { key: 'reversal', name: 'Short-term reversal, 1-week losers (Lehmann)',
+        opts: { mode: 'reversal', lookback: 5, skip: 0, rebalance: 5 } },
     ];
 
     const results = configs.map(c => {
@@ -689,7 +698,7 @@ function renderBacktest(results, signalCount, tickerCount, calendar, costBps, sp
 
     <div class="bt-meta">
       ${years} years · ${oosYears}y out of sample · ${tickerCount} tickers · ${signalCount.toLocaleString()} signals ·
-      ${costBps} bps per side · ${results.length} pre-specified hypotheses across 2 strategy families · significance bar ${ALPHA.toFixed(4)}
+      ${costBps} bps per side · ${results.length} pre-specified hypotheses · significance bar ${ALPHA.toFixed(4)}
     </div>
 
     ${delta}
@@ -805,15 +814,14 @@ function btMomentum(barsByTicker, dates, spyCloses, opts) {
         (spyCloses[i] != null && spyEma200[i] != null && spyCloses[i] > spyEma200[i]);
 
       if (regimeOk) {
-        const ranked = [];
-        for (const tk of tickers) {
-          const c = barsByTicker[tk].closes;
-          const now = c[i - skip], then = c[i - skip - lookback];
-          if (now == null || then == null || then <= 0) continue;
-          if (trendFilter && !(c[i] != null && ema200[tk][i] != null && c[i] > ema200[tk][i])) continue;
-          ranked.push({ tk, mom: (now - then) / then });
-        }
-        ranked.sort((a, b) => b.mom - a.mom);
+        const eligible = trendFilter
+          ? tickers.filter(tk => {
+              const c = barsByTicker[tk].closes;
+              return c[i] != null && ema200[tk][i] != null && c[i] > ema200[tk][i];
+            })
+          : tickers;
+        const ranked = btFactorRank(barsByTicker, eligible, i, opts.mode || 'momentum',
+                                    { lookback, skip });
         const picks = ranked.slice(0, slots);
         const size = cash / Math.max(1, picks.length);
         for (const p of picks) {
@@ -871,4 +879,80 @@ function btStats(curve, trades, dates, capital, spyCloses) {
            winRate: n ? Math.round(rets.filter(r => r > 0).length / n * 100) : 0,
            avgTrade: mean * 100, avgExcess: mExc * 100, effN: Math.round(effN),
            tStat, pValue, maxDrawdown: maxDD * 100, sharpe, avgHold, exposure, years, curve };
+}
+
+// ── Hunting grounds ──────────────────────────────────────────────────────────
+// An edge only survives if something stops smart money arbitraging it away:
+// capacity limits, mandate restrictions, risk that is genuinely unpleasant, or
+// research costs nobody will pay. Mega-cap US tech has none of those — it is the
+// most analysed corner of the most efficient market on earth, which is exactly
+// where an edge should NOT be expected to exist. Testing the same ideas on a
+// less-covered universe separates "our rules are wrong" from "our hunting ground
+// is wrong", and those call for completely different responses.
+//
+// SURVIVORSHIP BIAS WARNING: both lists are companies that still trade today.
+// Names that went to zero are absent, which inflates every backtested return.
+// That cuts one way only — a strategy that still loses despite a universe
+// stacked in its favour is conclusively dead, while a winner needs point-in-time
+// constituent data before it can be believed.
+
+const SMALLCAP_UNIVERSE = [
+  // Small/mid-cap industrials, materials, regional banks, healthcare, consumer —
+  // chosen for sector spread and enough liquidity to be tradeable.
+  'AAON','ACIW','AEIS','AIT','ALRM','AMPH','ANET','APOG','ARCB','ASGN',
+  'ATKR','AVAV','AWI','AZZ','BCPC','BMI','BOOT','BRC','CALM','CARG',
+  'CBT','CCOI','CENX','CHCO','CNMD','CRS','CSWI','CVCO','CWST','DORM',
+  'DY','EAT','EPAC','ESE','EXPO','FELE','FIX','FORM','FSS','GFF',
+  'GPI','GRBK','GTLS','HAE','HELE','HLIT','HWKN','ICFI','IIPR','INSW',
+  'ITGR','JBT','JJSF','KAI','KFY','KMT','KTOS','LANC','LCII','LNN',
+  'MATX','MLI','MMSI','MOG-A','MYRG','NPO','NSP','OSIS','OTTR','PATK',
+  'PLXS','POWL','PRIM','PTGX','RUSHA','SAIA','SHOO','SITM','SKYW','SMPL',
+  'SPSC','SSD','STRL','SXI','TGLS','TMHC','TNC','TREX','TRNO','TTEK',
+  'UFPI','UNF','VCEL','VICR','VRTS','WDFC','WERN','WIRE','WTS','ZWS',
+];
+
+// ── Generalised cross-sectional factor engine ────────────────────────────────
+// One machine, several ranking rules, all of them documented effects that are
+// computable from price alone — so none of this is parameter-searching.
+//
+//   momentum  — Jegadeesh & Titman 1993: past 3-12mo winners keep winning
+//   high52    — George & Hwang 2004: proximity to the 52-week high predicts
+//               continuation (anchoring bias; works where momentum does not)
+//   lowvol    — Ang et al. 2006: low-volatility names beat high-volatility ones
+//               risk-adjusted, because leverage constraints push buyers into
+//               lottery-like stocks
+//   reversal  — Lehmann 1990: one-week losers bounce. Real, but usually eaten
+//               by costs — included precisely to show what that looks like.
+function btFactorRank(bars, tickers, i, mode, opts) {
+  const out = [];
+  for (const tk of tickers) {
+    const c = bars[tk].closes, h = bars[tk].highs;
+    let score = null;
+    if (mode === 'momentum') {
+      const now = c[i - opts.skip], then = c[i - opts.skip - opts.lookback];
+      if (now != null && then > 0) score = (now - then) / then;
+    } else if (mode === 'high52') {
+      const win = h.slice(Math.max(0, i - 252), i + 1).filter(v => v != null);
+      if (win.length > 100 && c[i] != null) {
+        const hi = Math.max(...win);
+        if (hi > 0) score = c[i] / hi;            // closer to 1 = nearer its high
+      }
+    } else if (mode === 'lowvol') {
+      const win = c.slice(Math.max(0, i - 126), i + 1).filter(v => v != null);
+      if (win.length > 60) {
+        const r = [];
+        for (let k = 1; k < win.length; k++) r.push(win[k] / win[k - 1] - 1);
+        const m = r.reduce((a, b) => a + b, 0) / r.length;
+        const sd = Math.sqrt(r.reduce((a, b) => a + (b - m) ** 2, 0) / (r.length - 1));
+        if (sd > 0) score = -sd;                   // least volatile ranks highest
+      }
+    } else if (mode === 'reversal') {
+      const now = c[i], then = c[i - 5];
+      if (now != null && then > 0) score = -((now - then) / then);  // biggest loser first
+    }
+    if (score == null || !isFinite(score)) continue;
+    out.push({ tk, score });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out;
 }
