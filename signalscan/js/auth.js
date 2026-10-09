@@ -114,6 +114,7 @@ function renderAuthState() {
   }
 
   renderProGate();
+  applyProGates();
   updateAds();
   if (isSubscribed()) loadWatchlist();
   if (typeof renderHoF === 'function') renderHoF();
@@ -281,4 +282,73 @@ async function handleManageBilling() {
   } catch (err) {
     alert('Billing portal unavailable: ' + err.message);
   }
+}
+
+// ── Feature gating ───────────────────────────────────────────────────────────
+// What stays free is deliberate: anything that helps someone decide whether
+// this tool is honest should cost nothing. Analysing a ticker, seeing today's
+// scan, and reading the tracked outcomes — including the ones that went badly —
+// are all free. You cannot ask people to pay to find out whether you are
+// telling the truth.
+//
+// What is paid is the research machinery: the backtester, the strategy builder,
+// and the portfolio simulator. Those are the things that take real work to run
+// and that nobody else offers honestly.
+//
+// Gating is client-side. Someone determined can bypass it from a console, and
+// that is a deliberate trade — a server-side check would mean routing every
+// backtest through our own functions, which costs more than the subscription.
+
+const PRO_FEATURES = {
+  backtest:  { title: 'Backtesting',        blurb: 'Replay any strategy over 10 years of history, with transaction costs, train/test separation and significance testing that can tell you no.' },
+  algolab:   { title: 'Algo Lab',           blurb: 'Build your own scoring algorithm, test it on a live ticker, and scan the whole universe with it.' },
+  portfolio: { title: 'Portfolio simulator', blurb: 'See exactly what following every signal would have earned, day by day, against simply holding the index.' },
+};
+
+function hasPro() { return isSubscribed(); }
+
+// Guard for actions. Returns true when allowed; otherwise explains and stops.
+function requirePro(feature) {
+  if (hasPro()) return true;
+  showUpgradePrompt(feature);
+  return false;
+}
+
+function showUpgradePrompt(feature) {
+  const f = PRO_FEATURES[feature] || { title: 'This feature', blurb: '' };
+  if (!currentUser) { showAuthModal('signup'); return; }
+  handleUpgrade();
+}
+
+// Overlay any element marked data-pro="<feature>" when the user cannot use it.
+function applyProGates() {
+  const subscribed = hasPro();
+  document.querySelectorAll('[data-pro]').forEach(host => {
+    const feature = host.getAttribute('data-pro');
+    const f = PRO_FEATURES[feature] || { title: 'Pro feature', blurb: '' };
+    let veil = host.querySelector(':scope > .pro-veil');
+
+    if (subscribed) { if (veil) veil.remove(); host.classList.remove('pro-gated'); return; }
+
+    host.classList.add('pro-gated');
+    if (veil) return;
+    veil = document.createElement('div');
+    veil.className = 'pro-veil';
+    veil.innerHTML = `
+      <div class="pro-veil-card">
+        <div class="pro-veil-tag">PRO</div>
+        <div class="pro-veil-title">🔒 ${f.title}</div>
+        <div class="pro-veil-blurb">${f.blurb}</div>
+        <button class="pro-veil-btn" onclick="handleUpgradeClick('${feature}')">
+          ${currentUser ? 'UNLOCK — $5.99/MO' : 'CREATE ACCOUNT TO UNLOCK'}
+        </button>
+        <div class="pro-veil-foot">Cancel anytime · Analysis, scans and tracked outcomes stay free</div>
+      </div>`;
+    host.appendChild(veil);
+  });
+}
+
+function handleUpgradeClick(feature) {
+  if (!currentUser) { showAuthModal('signup'); return; }
+  handleUpgrade();   // existing Stripe checkout flow
 }

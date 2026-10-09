@@ -432,6 +432,7 @@ async function btFetch(ticker, years, attempt = 0) {
 }
 
 async function runBacktest() {
+  if (typeof requirePro === 'function' && !requirePro('backtest')) return;
   const btn = document.getElementById('btRunBtn');
   const statusEl = document.getElementById('btStatus');
   const out = document.getElementById('btResults');

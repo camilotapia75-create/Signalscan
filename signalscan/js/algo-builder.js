@@ -812,6 +812,7 @@ async function analyzeWithConfig(ticker, config, spyCloses, detail) {
 let _v2ScanRunning = false;
 
 async function runV2Scan() {
+  if (typeof requirePro === 'function' && !requirePro('algolab')) return;
   if (_v2ScanRunning) return;
   _v2ScanRunning = true;
 

@@ -768,6 +768,50 @@ header {
   padding: 7px 9px !important; outline: none !important; cursor: pointer !important;
 }
 .bt-select:focus { border-color: #9b6bff !important; }
+
+/* ── Pro gating ── */
+.pro-gated > *:not(.pro-veil) { filter: blur(3px) saturate(0.5) !important; pointer-events: none !important; user-select: none !important; }
+.pro-veil {
+  position: absolute !important; inset: 0 !important; z-index: 20 !important;
+  display: flex !important; align-items: center !important; justify-content: center !important;
+  padding: 24px !important;
+  background: radial-gradient(ellipse at center, rgba(5,7,9,0.72), rgba(5,7,9,0.94)) !important;
+  backdrop-filter: blur(2px) !important;
+}
+.pro-veil-card {
+  max-width: 440px !important; text-align: center !important;
+  background: rgba(13,17,23,0.96) !important;
+  border: 1px solid rgba(155,107,255,0.45) !important;
+  border-radius: 14px !important; padding: 26px 24px !important;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.7), 0 0 50px rgba(155,107,255,0.12) !important;
+}
+.pro-veil-tag {
+  display: inline-block !important; background: var(--gold) !important; color: #000 !important;
+  font-family: 'Syne', sans-serif !important; font-weight: 800 !important;
+  font-size: 9px !important; letter-spacing: 2px !important;
+  padding: 3px 9px !important; border-radius: 3px !important; margin-bottom: 12px !important;
+}
+.pro-veil-title {
+  font-family: 'Syne', sans-serif !important; font-weight: 800 !important;
+  font-size: 18px !important; color: #e8edf2 !important; margin-bottom: 8px !important;
+}
+.pro-veil-blurb {
+  font-size: 12px !important; line-height: 1.8 !important;
+  color: #9aa6b2 !important; margin-bottom: 18px !important;
+}
+.pro-veil-btn {
+  background: linear-gradient(135deg,#7a4de0,#9b6bff) !important; color: #fff !important;
+  border: none !important; border-radius: 9px !important;
+  font-family: 'Syne', sans-serif !important; font-weight: 800 !important;
+  font-size: 12px !important; letter-spacing: 1.5px !important;
+  padding: 12px 26px !important; cursor: pointer !important;
+  transition: box-shadow 0.2s, transform 0.2s !important;
+}
+.pro-veil-btn:hover { box-shadow: 0 0 26px rgba(155,107,255,0.6) !important; transform: translateY(-2px) !important; }
+.pro-veil-foot {
+  font-size: 10px !important; color: #5a6a7a !important;
+  margin-top: 12px !important; line-height: 1.6 !important;
+}
 </style>
 </head>
 <body>
@@ -1041,7 +1085,7 @@ header {
   </div><!-- /appSectionAnalyze -->
 
   <!-- ── ⚗️ ALGO LAB — top-level section ───────────────────────── -->
-  <div id="appSectionAlgoLab" style="display:none;">
+  <div id="appSectionAlgoLab" data-pro="algolab" style="display:none;position:relative;">
     <div style="margin-bottom:32px;">
       <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:26px;letter-spacing:-0.5px;">⚗️ ALGO <span style="color:#9b6bff;">LAB</span></div>
       <div style="font-size:11px;color:var(--muted);margin-top:8px;letter-spacing:1px;line-height:1.7;">BUILD YOUR OWN ALGORITHM · TUNE SIGNALS &amp; WEIGHTS · SCAN 150+ STOCKS &amp; CRYPTO · SHARE WITH THE COMMUNITY</div>
@@ -1133,7 +1177,7 @@ header {
 
   <!-- ── Hall of Fame — always visible below tabs ──────────────────────── -->
   <!-- ── 🔬 Backtest ──────────────────────────────────────────── -->
-  <div id="btSection" style="padding:32px;border-top:1px solid rgba(155,107,255,0.3);">
+  <div id="btSection" data-pro="backtest" style="position:relative;padding:32px;border-top:1px solid rgba(155,107,255,0.3);">
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:6px;">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;letter-spacing:-0.3px;">🔬 <span style="color:#9b6bff;">BACKTEST</span></div>
@@ -1171,7 +1215,7 @@ header {
   </div>
 
   <!-- ── 💼 Mock portfolio ─────────────────────────────────────── -->
-  <div id="pfSection" style="padding:32px;border-top:1px solid rgba(0,255,136,0.25);">
+  <div id="pfSection" data-pro="portfolio" style="position:relative;padding:32px;border-top:1px solid rgba(0,255,136,0.25);">
     <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:6px;">
       <div>
         <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:20px;letter-spacing:-0.3px;">💼 MOCK <span style="color:var(--accent);">PORTFOLIO</span></div>
@@ -1293,15 +1337,15 @@ header {
 <!-- ── Theme toggle ────────────────────────────── -->
 <button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle light/dark mode" style="position:fixed;bottom:20px;right:20px;width:38px;height:38px;border-radius:50%;background:var(--surface);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;z-index:999;display:flex;align-items:center;justify-content:center;transition:border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">🌙</button>
 
-<script src="js/config.js?v=40"></script>
-<script src="js/calc.js?v=40"></script>
-<script src="js/analysis.js?v=40"></script>
-<script src="js/scanner.js?v=40"></script>
-<script src="js/algo-builder.js?v=40"></script>
-<script src="js/backtest.js?v=40"></script>
-<script src="js/app.js?v=40"></script>
-<script src="js/auth.js?v=40"></script>
-<script src="js/watchlist.js?v=40"></script>
+<script src="js/config.js?v=50"></script>
+<script src="js/calc.js?v=50"></script>
+<script src="js/analysis.js?v=50"></script>
+<script src="js/scanner.js?v=50"></script>
+<script src="js/algo-builder.js?v=50"></script>
+<script src="js/backtest.js?v=50"></script>
+<script src="js/app.js?v=50"></script>
+<script src="js/auth.js?v=50"></script>
+<script src="js/watchlist.js?v=50"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
 </html>

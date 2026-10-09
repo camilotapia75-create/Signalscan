@@ -1793,6 +1793,7 @@ async function loadPortfolioData(statusEl) {
 }
 
 async function runPortfolioSim() {
+  if (typeof requirePro === 'function' && !requirePro('portfolio')) return;
   const btn     = document.getElementById('pfRunBtn');
   const statusEl = document.getElementById('pfStatus');
   const out     = document.getElementById('pfResults');
