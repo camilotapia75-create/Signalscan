@@ -315,11 +315,11 @@ main > * { position: relative; z-index: 1; }
 }
 
 /* ── HOF table rows — premium hover ─────────────────────────────────────── */
-#hofTbody tr, #bpHofTbody tr, #allHofTbody tr {
+#hofTbody tr, #allHofTbody tr {
   border-bottom: 1px solid rgba(28,35,48,0.6);
   transition: background 0.15s ease;
 }
-#hofTbody tr:hover, #bpHofTbody tr:hover, #allHofTbody tr:hover {
+#hofTbody tr:hover, #allHofTbody tr:hover {
   background: rgba(155,107,255,0.05);
 }
 

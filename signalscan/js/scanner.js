@@ -155,31 +155,6 @@ function switchAppTab(tab) {
   if (tab === 'algolab' && typeof initV2Builder === 'function') initV2Builder();
 }
 
-function switchScanTab(tab) {
-  const tabs   = ['original', 'bullpen'];
-  const panels = { original: 'scanPanelOriginal', bullpen: 'scanPanelBullpen' };
-  const tabBtns = { original: 'scanTabOriginal', bullpen: 'scanTabBullpen' };
-
-  tabs.forEach(t => {
-    const panel = document.getElementById(panels[t]);
-    const btn   = document.getElementById(tabBtns[t]);
-    if (panel) panel.style.display = t === tab ? 'block' : 'none';
-    if (btn) {
-      if (t === tab) {
-        btn.style.background = t === 'bullpen' ? 'rgba(255,140,80,0.8)' : 'var(--gold)';
-        btn.style.color = '#000';
-      } else {
-        btn.style.background = 'transparent'; btn.style.color = 'var(--muted)';
-      }
-    }
-  });
-
-  const scanBtn   = document.getElementById('scanBtn');
-  const bpScanBtn = document.getElementById('bpScanBtn');
-  if (scanBtn)   scanBtn.style.display   = tab === 'original' ? 'inline-block' : 'none';
-  if (bpScanBtn) bpScanBtn.style.display = tab === 'bullpen'  ? 'inline-block' : 'none';
-}
-
 function runScanner() {
   const daily   = getDailyRotation(ROTATION_POOL, 20);
   const tickers = [...new Set([...SCAN_UNIVERSE_CORE, ...daily])];
@@ -685,203 +660,6 @@ async function loadAllHofReturns() {
   if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
 }
 
-// ── Bull Pen HOF ───────────────────────────────────────────────
-
-const BP_HOF_KEY = 'signalscan_bullpen_hof';
-
-async function renderBullPenHoF() {
-  const section = document.getElementById('bpHofSection');
-  if (!section) return;
-
-  const isAdmin = typeof currentUser !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
-  const gen = ++_bpRenderGen;
-
-  try {
-    const sb = getSupabase();
-    const { data: records, error } = await sb
-      .from('bull_pen_hof')
-      .select('ticker,detected_at,signal_price,conviction')
-      .order('detected_at', { ascending: false })
-      .limit(500);
-
-    if (gen !== _bpRenderGen) return;
-    if (error) throw error;
-
-    const titleEl    = document.getElementById('bpHofTitle');
-    const subtitleEl = document.getElementById('bpHofSubtitle');
-    const countEl    = document.getElementById('bpHofCount');
-    const btn        = document.getElementById('bpHofReturnBtn');
-
-    if (!records?.length) { section.style.display = 'none'; return; }
-
-    section.style.display = 'block';
-
-    if (isAdmin) {
-      _bpAdminRecords = records;
-      const uniqueCount = new Set(records.map(r => r.ticker)).size;
-      if (titleEl)    titleEl.textContent    = '🧪 BULL PEN HOF — ADMIN';
-      if (subtitleEl) subtitleEl.textContent = `${records.length} SIGNALS · ${uniqueCount} TICKERS`;
-      if (countEl)    countEl.textContent    = records.length;
-      if (btn) btn.style.display = 'block';
-      _renderBullPenAdminTable(records);
-    } else {
-      _bpAdminRecords = [];
-      const uniqueCount = new Set(records.map(r => r.ticker)).size;
-      if (countEl)    countEl.textContent    = uniqueCount;
-      if (btn) btn.style.display = 'none';
-      await _renderBullPenPublicTable(records, gen);
-    }
-  } catch (e) {
-    console.error('[BP HOF] render error:', e.message);
-    // localStorage fallback
-    try {
-      const raw = localStorage.getItem(BP_HOF_KEY);
-      if (!raw) return;
-      const store = JSON.parse(raw);
-      if (!store.signals?.length) return;
-      const section2 = document.getElementById('bpHofSection');
-      if (section2) section2.style.display = 'block';
-      const tbody = document.getElementById('bpHofTbody');
-      if (tbody) {
-        tbody.innerHTML = store.signals.slice().reverse().slice(0, 20).map(s => {
-          const lbl   = new Date(s.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-          const price = s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2);
-          return `<tr>
-            <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
-            <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-            <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-            <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-            <td style="padding:7px 8px;color:var(--muted);">—</td>
-          </tr>`;
-        }).join('');
-      }
-    } catch (_) {}
-  }
-}
-
-async function _renderBullPenPublicTable(records, gen) {
-  const tbody = document.getElementById('bpHofTbody');
-  if (!tbody) return;
-
-  // One per ticker — keep OLDEST (first detection price), records sorted DESC
-  const byTicker = new Map();
-  for (const r of records) byTicker.set(r.ticker, r);
-  const allUnique = [...byTicker.values()];
-  // Show top 50 by conviction initially
-  const initialView = [...allUnique].sort((a, b) => b.conviction - a.conviction).slice(0, 50);
-
-  const renderRows = (rows) => {
-    if (gen !== _bpRenderGen) return;
-    tbody.innerHTML = rows.map(s => {
-      const lbl    = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-      const price  = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color  = s.pct != null ? (s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)') : 'var(--muted)';
-      const pctStr = s.pct != null ? `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%` : '—';
-      return `<tr>
-        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
-        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-        <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
-      </tr>`;
-    }).join('');
-  };
-
-  renderRows(initialView.map(r => ({ ...r, pct: null })));
-
-  try {
-    const symbols  = allUnique.map(r => r.ticker).join(',');
-    const quoteUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}&fields=regularMarketPrice`;
-    const res      = await fetch(`/api/proxy?url=${encodeURIComponent(quoteUrl)}`);
-    if (!res.ok) throw new Error(`proxy ${res.status}`);
-    const json   = await res.json();
-    const quotes = json.quoteResponse?.result || [];
-
-    const prices = {};
-    for (const q of quotes) {
-      if (q.symbol && q.regularMarketPrice) prices[q.symbol] = q.regularMarketPrice;
-    }
-
-    const withPct = records.map(r => {
-      const cur = prices[r.ticker];
-      if (!cur) return null;
-      return { ...r, pct: (cur - parseFloat(r.signal_price)) / parseFloat(r.signal_price) * 100 };
-    }).filter(Boolean);
-
-    const bestByTicker = new Map();
-    for (const r of withPct) {
-      const existing = bestByTicker.get(r.ticker);
-      if (!existing || r.pct > existing.pct) bestByTicker.set(r.ticker, r);
-    }
-
-    renderRows([...bestByTicker.values()].sort((a, b) => b.pct - a.pct));
-  } catch (e) {
-    console.error('[BP HOF] price fetch failed:', e.message);
-  }
-}
-
-function _renderBullPenAdminTable(records) {
-  const tbody = document.getElementById('bpHofTbody');
-  if (!tbody) return;
-  // Deduplicate: one per ticker, keep OLDEST — records sorted DESC so last write = oldest
-  const byTicker = new Map();
-  for (const r of records) byTicker.set(r.ticker, r);
-  const unique = [...byTicker.values()].sort((a, b) => b.conviction - a.conviction);
-  tbody.innerHTML = unique.map(s => {
-    const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-    const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-    return `<tr>
-      <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
-      <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-      <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-      <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-      <td style="padding:7px 8px;color:var(--muted);">—</td>
-    </tr>`;
-  }).join('');
-}
-
-async function loadBullPenReturns() {
-  if (_bpReturnLoading) return;
-  _bpReturnLoading = true;
-  const btn = document.getElementById('bpHofReturnBtn');
-  if (btn) { btn.disabled = true; btn.textContent = 'LOADING...'; }
-
-  // Deduplicate to one per ticker (oldest first detection), then fetch returns
-  const byTicker = new Map();
-  for (const r of _bpAdminRecords) byTicker.set(r.ticker, r);
-  const toLoad = [...byTicker.values()];
-
-  const results = await Promise.all(toLoad.map(async s => {
-    try {
-      const data = await _fetchScanData(s.ticker, '1d|5d');
-      const cur  = data?.closes?.filter(Boolean).slice(-1)[0];
-      if (!cur) return null;
-      return { ...s, pct: (cur - parseFloat(s.signal_price)) / parseFloat(s.signal_price) * 100 };
-    } catch (_) { return null; }
-  }));
-
-  const sorted = results.filter(Boolean).sort((a, b) => b.pct - a.pct);
-  const tbody = document.getElementById('bpHofTbody');
-  if (tbody && sorted.length) {
-    tbody.innerHTML = sorted.map(s => {
-      const lbl   = new Date(s.detected_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
-      const price = s.signal_price < 10 ? parseFloat(s.signal_price).toFixed(4) : parseFloat(s.signal_price).toFixed(2);
-      const color = s.pct >= 0 ? 'var(--accent)' : 'var(--accent2)';
-      const pctStr = `${s.pct >= 0 ? '+' : ''}${s.pct.toFixed(1)}%`;
-      return `<tr>
-        <td onclick="loadTickerAndAnalyze('${s.ticker}')" style="cursor:pointer;color:#ff9055;padding:7px 8px;">${s.ticker}</td>
-        <td class="hof-col-det" style="padding:7px 8px;color:var(--muted);">${lbl}</td>
-        <td class="hof-col-price" style="padding:7px 8px;">$${price}</td>
-        <td style="padding:7px 8px;color:var(--gold);">${s.conviction}%</td>
-        <td style="padding:7px 8px;font-weight:600;color:${color};">${pctStr}</td>
-      </tr>`;
-    }).join('');
-  }
-
-  _bpReturnLoading = false;
-  if (btn) { btn.disabled = false; btn.textContent = 'REFRESH RETURNS'; }
-}
-
 // ── Analysis ────────────────────────────────────────────────────
 
 const ANALYSIS_CACHE = new Map();
@@ -1058,11 +836,10 @@ function _scoreThreshold() {
 }
 
 // Runs the two analysis engines the Analyze tab uses and reports what they say.
-// Golden Bull requires BOTH bullish; Bull Pen requires exactly one (a setup that
-// is working but not yet confirmed). Without this, scoring alone lets nearly
-// every stock in an uptrend through.
+// Golden Bull requires BOTH engines to read bullish. Scoring alone lets nearly
+// every stock in an uptrend through, which is what caused the 64-result flood.
 function _engineBias(ticker, closes, highs, lows, volumes, price) {
-  const none = { rev: null, cont: null, dualAgree: false, oneBullish: false, bullScore: 0 };
+  const none = { rev: null, cont: null, dualAgree: false };
   try {
     if (!highs || !lows || highs.length < 30 || lows.length < 30) return none;
     const e20a = calcEMA(closes, 20), e50a = calcEMA(closes, 50);
@@ -1084,15 +861,7 @@ function _engineBias(ticker, closes, highs, lows, volumes, price) {
     const rev  = generateAnalysis(ticker, indData, sr, pa);
     const cont = generateContinuationAnalysis(ticker, indData, sr, pa);
     const rb = rev.bias === 'BULLISH', cb = cont.bias === 'BULLISH';
-    // How strongly the bullish engine reads. The engines flip to BULLISH at only
-    // ~0.2, so a bare bias flag is a weak signal on its own.
-    const bullScore = Math.max(rb ? rev.score : -Infinity, cb ? cont.score : -Infinity);
-    return {
-      rev, cont,
-      dualAgree:  rb && cb,
-      oneBullish: (rb || cb) && !(rb && cb),
-      bullScore:  isFinite(bullScore) ? bullScore : 0,
-    };
+    return { rev, cont, dualAgree: rb && cb };
   } catch (_) { return none; }
 }
 
@@ -1245,127 +1014,6 @@ async function quickAnalyzeForScan(ticker) {
   const thr          = _scoreThreshold();
   const isGoldenBull = bias.dualAgree && score >= thr;
   const conviction   = Math.min(100, Math.max(0, Math.round(score / _maxAchievableScore() * 100)));
-
-  return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
-}
-
-async function quickAnalyzeForScanV2(ticker) {
-  const data = await _fetchScanData(ticker, '6mo|3mo');
-  if (!data) return null;
-  const { closes, volumes, highs, lows } = _cleanBars(data);
-  if (closes.length < 50) return null;
-
-  const price = closes[closes.length - 1];
-  if (!price || price < 2) return null;
-
-  const ema9   = _emaScalar(closes, 9);
-  const ema21  = _emaScalar(closes, 21);
-  const ema50  = _emaScalar(closes, 50);
-  const ema200 = _emaScalar(closes, 200);
-  const rsi    = _rsiScan(closes);
-  const macd   = _macdScan(closes);
-  const bb     = _bbScan(closes);
-  const obv    = _obvScan(closes, volumes);
-
-  if (!ema9 || !ema21 || !ema50 || !rsi || !bb) return null;
-
-  // Bull Pen uses same hard gates as Golden Bull scanner
-  if (price < ema50) return null;
-  if (rsi > 78) return null; // slightly looser overbought gate for Bull Pen
-
-  if (closes.length >= 70) {
-    const ema50Prior = _emaScalar(closes.slice(0, -20), 50);
-    if (ema50Prior && ema50 < ema50Prior * 0.998) return null;
-  }
-
-  let score = 0;
-  const signals = [];
-
-  if (ema9 > ema21 && ema21 > ema50) {
-    score += 3;
-    signals.push('Full EMA stack aligned (9 > 21 > 50) — confirmed uptrend');
-  } else if (ema9 > ema21) {
-    score += 1;
-    signals.push('EMA9 > EMA21 — short-term bullish momentum');
-  }
-
-  if (ema200 && price > ema200) {
-    score += 2;
-    signals.push(`Above EMA200 ($${ema200.toFixed(2)}) — long-term bull market structure`);
-  }
-
-  if (rsi >= 45 && rsi <= 68) {
-    score += 3;
-    signals.push(`RSI ${rsi.toFixed(0)} — momentum zone`);
-  } else if (rsi >= 35 && rsi < 45) {
-    score += 1;
-    signals.push(`RSI ${rsi.toFixed(0)} — oversold bounce zone`);
-  }
-
-  if (macd && macd > 0) {
-    score += 2;
-    signals.push('MACD positive — bull momentum confirmed');
-  }
-
-  const extPct = (price - ema50) / ema50 * 100;
-  if (extPct <= 18) {
-    score += 2;
-    signals.push(`${extPct.toFixed(1)}% above EMA50 — healthy extension`);
-  } else if (extPct > 28) {
-    score -= 2;
-    signals.push(`${extPct.toFixed(1)}% above EMA50 — overextended`);
-  }
-
-  if (obv.length >= 10) {
-    const o = obv.slice(-10);
-    if (o[o.length - 1] > o[0]) {
-      score += 2;
-      signals.push('OBV rising 10-day — accumulation confirmed');
-    }
-  }
-
-  if (volumes.length >= 25) {
-    const recentVol = volumes.slice(-5).reduce((a, b) => a + (b || 0), 0) / 5;
-    const avgVol    = volumes.slice(-25, -5).reduce((a, b) => a + (b || 0), 0) / 20;
-    if (avgVol > 0 && recentVol > avgVol * 1.15) {
-      score += 1;
-      signals.push('Volume expanding above 20-day average');
-    }
-  }
-
-  try {
-    const spyData = await _fetchScanData('SPY', '3mo');
-    if (spyData?.closes?.length >= 20) {
-      const sc = spyData.closes.filter(Boolean);
-      const spyRet = (sc[sc.length - 1] - sc[sc.length - 20]) / sc[sc.length - 20] * 100;
-      const tkrRet = closes.length >= 20
-        ? (closes[closes.length - 1] - closes[closes.length - 20]) / closes[closes.length - 20] * 100
-        : null;
-      if (tkrRet !== null && tkrRet > spyRet + 3) {
-        score += 2;
-        signals.push(`Outperforming SPY by ${(tkrRet - spyRet).toFixed(1)}% over 20 days`);
-      } else if (tkrRet !== null && tkrRet < spyRet - 5) {
-        score -= 1;
-      }
-    }
-  } catch (_) {}
-
-  if (price > bb.mean && price < bb.upper) {
-    score += 1;
-    signals.push('Between BB mean and upper band — constructive position');
-  } else if (price > bb.upper) {
-    score -= 1;
-  }
-
-  // The Bull Pen is a staging area, NOT a looser Golden Bull scan. A candidate
-  // belongs here when it has real strength (score ≥10) and exactly ONE engine
-  // reads bullish — the setup is working but unconfirmed. Once the second engine
-  // agrees it graduates to Golden Bull and leaves the pen, so the two lists never
-  // overlap. Score alone (the old ≥8 rule) let through nearly everything that
-  // cleared the gates, which is why the pen was returning the whole universe.
-  const bias         = _engineBias(ticker, closes, highs, lows, volumes, price);
-  const isGoldenBull = bias.oneBullish && bias.bullScore >= 0.35 && score >= 10;
-  const conviction   = Math.min(100, Math.max(0, Math.round(score / 18 * 100)));
 
   return { ticker, price, signals, conviction, isGoldenBull, topSignal: signals[0] || null };
 }
@@ -1527,9 +1175,6 @@ async function runAnalysis() {
   }
 }
 
-// ── Bull Pen scanner (V2) ───────────────────────────────────────────────
-
-let _bpScanRunning = false;
 let _spyReturn     = null;
 
 async function getSpyReturn() {
@@ -1542,59 +1187,6 @@ async function getSpyReturn() {
     }
   } catch (_) {}
   return _spyReturn;
-}
-
-function runBullPenScanner() {
-  const daily   = getDailyRotation(ROTATION_POOL, 20);
-  const tickers = [...new Set([...SCAN_UNIVERSE_CORE, ...daily])];
-  return _runScanCore(tickers, {
-    btnId: 'bpScanBtn',              progressId: 'bpProgress',          gridId: 'bpResultsGrid',
-    emptyId: 'bpEmpty',              headerId: 'bpResultsHeader',        foundMsgId: 'bpFoundMsg',
-    statusId: 'bpStatusText',        countId: 'bpProgressCount',         barId: 'bpProgressBar',
-    btnLabel: '🔍 SCAN AGAIN',
-    foundNoun: 'BULL PEN CANDIDATE',
-    cardTag: { text: '🧪 BULL PEN — 1 of 2 engines confirmed', color: '#ff9055' },
-  }, quickAnalyzeForScanV2, hofRecordBullPen, renderBullPenHoF);
-}
-
-async function hofRecordBullPen(bulls) {
-  try {
-    await fetch('/api/hof/record-bp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ signals: bulls.map(b => ({ ticker: b.ticker, price: b.price, conviction: b.conviction })) }),
-    });
-  } catch (_) {}
-
-  // localStorage fallback
-  try {
-    const raw   = localStorage.getItem(BP_HOF_KEY);
-    const store = raw ? JSON.parse(raw) : { since: Date.now(), signals: [] };
-    const now   = Date.now();
-    for (const b of bulls) {
-      const dup = store.signals.find(s => s.ticker === b.ticker && now - s.ts < 7 * 86400000);
-      if (!dup) store.signals.push({ ticker: b.ticker, ts: now, price: b.price, conviction: b.conviction });
-    }
-    store.signals = store.signals.slice(-500);
-    localStorage.setItem(BP_HOF_KEY, JSON.stringify(store));
-  } catch (_) {}
-}
-
-// ── Watchlist HOF ticker ───────────────────────────────────────────────
-
-function updateBullPenTicker() {
-  const tickerEl = document.getElementById('bpHofTicker');
-  if (!tickerEl) return;
-  try {
-    const raw = localStorage.getItem(BP_HOF_KEY);
-    if (!raw) return;
-    const store = JSON.parse(raw);
-    if (!store.signals?.length) return;
-    const items = store.signals.slice().reverse().map(s =>
-      `<span style="margin-right:24px;">${s.ticker} <span style="color:var(--gold);">$${s.price < 10 ? s.price.toFixed(4) : s.price.toFixed(2)}</span></span>`
-    ).join('');
-    tickerEl.innerHTML = items + items;
-  } catch (_) {}
 }
 
 function updateGoldenBullTicker() {

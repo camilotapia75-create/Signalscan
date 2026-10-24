@@ -40,7 +40,6 @@ async function initAuth() {
 
   // Render HOF immediately — public data, no auth needed, don't wait for getSession
   if (typeof renderHoF        === 'function') renderHoF();
-  if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
   if (typeof renderAllHoF     === 'function') renderAllHoF();
 
   // Wrap getSession in try-catch so a network failure doesn't silently prevent
@@ -118,7 +117,6 @@ function renderAuthState() {
   updateAds();
   if (isSubscribed()) loadWatchlist();
   if (typeof renderHoF === 'function') renderHoF();
-  if (typeof renderBullPenHoF === 'function') renderBullPenHoF();
   if (typeof renderAllHoF === 'function') renderAllHoF();
 }
 
@@ -305,7 +303,14 @@ const PRO_FEATURES = {
   portfolio: { title: 'Portfolio simulator', blurb: 'See exactly what following every signal would have earned, day by day, against simply holding the index.' },
 };
 
-function hasPro() { return isSubscribed(); }
+// The owner's account always has full access — being paywalled out of your own
+// product makes it impossible to check that it works. ADMIN_EMAIL is defined in
+// scanner.js, which loads first.
+function isAdminUser() {
+  return typeof ADMIN_EMAIL !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
+}
+
+function hasPro() { return isAdminUser() || isSubscribed(); }
 
 // Guard for actions. Returns true when allowed; otherwise explains and stops.
 function requirePro(feature) {

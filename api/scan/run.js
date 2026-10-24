@@ -2,7 +2,7 @@
 // GET /api/scan/run  (Vercel cron sends Authorization: Bearer <CRON_SECRET>)
 //
 // Required env vars:
-//   SUPABASE_SERVICE_ROLE_KEY  — write to golden_bull_hof, bull_pen_hof, scan_run_log
+//   SUPABASE_SERVICE_ROLE_KEY  — write to golden_bull_hof, scan_run_log
 //   CRON_SECRET                — set in Vercel dashboard (any random string)
 //
 // Adaptive scoring: loads learned signal weights from signal_weights table.
@@ -280,9 +280,9 @@ function _scoreTicker(closes, volumes, spyCloses, rsiGate, weights) {
 
 async function analyzeTickerBoth(ticker, spyCloses, weights) {
   const data = await fetchYF(ticker);
-  if (!data) return { golden: null, bullpen: null };
+  if (!data) return { golden: null };
   const { closes, volumes } = data;
-  if (closes.length < 50) return { golden: null, bullpen: null };
+  if (closes.length < 50) return { golden: null };
 
   // Compute weighted max score so threshold scales with weights
   const weightedMax = Object.entries(SIGNAL_DEFS)
@@ -291,7 +291,6 @@ async function analyzeTickerBoth(ticker, spyCloses, weights) {
   const threshold = weightedMax * 0.56; // 56% of max = Golden Bull
 
   const gbRes = _scoreTicker(closes, volumes, spyCloses, 76, weights);
-  const bpRes = _scoreTicker(closes, volumes, spyCloses, 78, weights);
 
   const toEntry = (r, minScore) => {
     if (!r) return null;
@@ -307,18 +306,7 @@ async function analyzeTickerBoth(ticker, spyCloses, weights) {
     };
   };
 
-  // Bull Pen is a staging area, not a lower bar: same strength requirement,
-  // evaluated under the looser overbought gate, minus anything that already
-  // qualifies as a Golden Bull. The old threshold*0.7 (≈39% of max) admitted
-  // essentially every ticker that cleared the hard gates.
-  const goldenEntry = toEntry(gbRes, threshold);
-  const bpEntry     = toEntry(bpRes, threshold);
-  if (bpEntry && goldenEntry?.qualifies) bpEntry.qualifies = false;
-
-  return {
-    golden:  goldenEntry,
-    bullpen: bpEntry,
-  };
+  return { golden: toEntry(gbRes, threshold) };
 }
 
 // ── Supabase persistence ─────────────────────────────────────────────────────
@@ -375,8 +363,6 @@ async function logScanRun(summary) {
         tickers_scanned: summary.scanned,
         gb_found:        summary.gb_found,
         gb_new:          summary.gb_new,
-        bp_found:        summary.bp_found,
-        bp_new:          summary.bp_new,
         gb_tickers:      summary.gb_tickers,
         duration_ms:     summary.duration_ms,
       }),
@@ -443,7 +429,7 @@ export default async function handler(req, res) {
   const spyData   = await fetchYF('SPY');
   const spyCloses = spyData?.closes || null;
 
-  const golden = [], bullpen = [];
+  const golden = [];
   let idx = 0, analyzed = 0;
 
   // Persistence happens after the scan loop, so the loop MUST finish before the
@@ -456,10 +442,9 @@ export default async function handler(req, res) {
       if (Date.now() - startMs > BUDGET_MS) return;
       const ticker = tickers[idx++];
       try {
-        const { golden: gb, bullpen: bp } = await analyzeTickerBoth(ticker, spyCloses, weights);
+        const { golden: gb } = await analyzeTickerBoth(ticker, spyCloses, weights);
         analyzed++;
         if (gb?.qualifies)  golden.push(gb);
-        if (bp?.qualifies)  bullpen.push(bp);
       } catch (_) {}
     }
   }
@@ -475,7 +460,6 @@ export default async function handler(req, res) {
   }
 
   const gbNew = await recordBulls(golden,  'golden_bull_hof');
-  const bpNew = await recordBulls(bullpen, 'bull_pen_hof');
   const ms    = Date.now() - startMs;
 
   const summary = {
@@ -485,14 +469,13 @@ export default async function handler(req, res) {
     truncated,
     persisted:   !!SUPABASE_SERVICE,
     gb_found:    golden.length,  gb_new: gbNew,  gb_tickers: golden.map(b => b.ticker),
-    bp_found:    bullpen.length, bp_new: bpNew,  bp_tickers: bullpen.map(b => b.ticker),
     duration_ms: ms,
     weights_used: Object.keys(weights).length,
   };
 
   await logScanRun(summary);
 
-  console.log(`[scan/run] Done ${ms}ms | GB: ${golden.length} found, ${gbNew} new | BP: ${bullpen.length} found, ${bpNew} new | ${Object.keys(weights).length} learned weights active`);
+  console.log(`[scan/run] Done ${ms}ms | GB: ${golden.length} found, ${gbNew} new | ${Object.keys(weights).length} learned weights active`);
 
   return res.status(200).json(summary);
 }
