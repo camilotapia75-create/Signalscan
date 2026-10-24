@@ -304,10 +304,19 @@ const PRO_FEATURES = {
 };
 
 // The owner's account always has full access — being paywalled out of your own
-// product makes it impossible to check that it works. ADMIN_EMAIL is defined in
-// scanner.js, which loads first.
+// product makes it impossible to check that it works.
+//
+// Compared case-insensitively and trimmed, and with the address repeated here
+// rather than relying on scanner.js's ADMIN_EMAIL: providers vary on how they
+// normalise addresses, and an exact === against a value defined in another file
+// is two independent ways for this to silently fail.
+const ADMIN_EMAILS = ['camilotapia75@gmail.com'];
+
 function isAdminUser() {
-  return typeof ADMIN_EMAIL !== 'undefined' && currentUser?.email === ADMIN_EMAIL;
+  const e = (currentUser?.email || '').trim().toLowerCase();
+  if (!e) return false;
+  if (ADMIN_EMAILS.includes(e)) return true;
+  return typeof ADMIN_EMAIL !== 'undefined' && e === String(ADMIN_EMAIL).trim().toLowerCase();
 }
 
 function hasPro() { return isAdminUser() || isSubscribed(); }
@@ -356,4 +365,22 @@ function applyProGates() {
 function handleUpgradeClick(feature) {
   if (!currentUser) { showAuthModal('signup'); return; }
   handleUpgrade();   // existing Stripe checkout flow
+}
+
+
+// Diagnostic for when access looks wrong. Run __ssDebug() in the browser
+// console: it reports the build, the signed-in address and every input to the
+// gate, so a stale deploy can be told apart from a genuine logic failure.
+function __ssDebug() {
+  const info = {
+    build:        document.querySelector('script[src*="auth.js"]')?.src.split('?')[1] || 'unknown',
+    signedInAs:   currentUser?.email ?? '(not signed in)',
+    subscription: currentSub?.status ?? '(none)',
+    isAdminUser:  typeof isAdminUser === 'function' ? isAdminUser() : 'MISSING — stale JS',
+    isSubscribed: isSubscribed(),
+    hasPro:       typeof hasPro === 'function' ? hasPro() : 'MISSING — stale JS',
+    lockedPanels: [...document.querySelectorAll('[data-pro].pro-gated')].map(e => e.id),
+  };
+  console.table(info);
+  return info;
 }
