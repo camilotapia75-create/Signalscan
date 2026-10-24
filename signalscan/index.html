@@ -812,6 +812,23 @@ header {
   font-size: 10px !important; color: #5a6a7a !important;
   margin-top: 12px !important; line-height: 1.6 !important;
 }
+
+/* ── Community algo actions ── */
+.v2-algo-actions { display: flex !important; gap: 6px !important; align-items: stretch !important; }
+.v2-algo-actions .v2-load-btn { flex: 1 !important; }
+.v2-del-btn {
+  background: rgba(255,61,107,0.08) !important;
+  border: 1px solid rgba(255,61,107,0.3) !important;
+  border-radius: 6px !important; color: #ff3d6b !important;
+  font-size: 12px !important; padding: 0 10px !important; cursor: pointer !important;
+  transition: background 0.2s, border-color 0.2s, transform 0.15s !important;
+}
+.v2-del-btn:hover:not(:disabled) {
+  background: rgba(255,61,107,0.2) !important;
+  border-color: rgba(255,61,107,0.65) !important;
+  transform: translateY(-1px) !important;
+}
+.v2-del-btn:disabled { opacity: 0.5 !important; cursor: default !important; }
 </style>
 </head>
 <body>
@@ -1300,15 +1317,15 @@ header {
 <!-- ── Theme toggle ────────────────────────────── -->
 <button id="themeToggleBtn" onclick="toggleTheme()" title="Toggle light/dark mode" style="position:fixed;bottom:20px;right:20px;width:38px;height:38px;border-radius:50%;background:var(--surface);border:1px solid var(--border);color:var(--muted);font-size:16px;cursor:pointer;z-index:999;display:flex;align-items:center;justify-content:center;transition:border-color 0.2s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">🌙</button>
 
-<script src="js/config.js?v=61"></script>
-<script src="js/calc.js?v=61"></script>
-<script src="js/analysis.js?v=61"></script>
-<script src="js/scanner.js?v=61"></script>
-<script src="js/algo-builder.js?v=61"></script>
-<script src="js/backtest.js?v=61"></script>
-<script src="js/app.js?v=61"></script>
-<script src="js/auth.js?v=61"></script>
-<script src="js/watchlist.js?v=61"></script>
+<script src="js/config.js?v=62"></script>
+<script src="js/calc.js?v=62"></script>
+<script src="js/analysis.js?v=62"></script>
+<script src="js/scanner.js?v=62"></script>
+<script src="js/algo-builder.js?v=62"></script>
+<script src="js/backtest.js?v=62"></script>
+<script src="js/app.js?v=62"></script>
+<script src="js/auth.js?v=62"></script>
+<script src="js/watchlist.js?v=62"></script>
 <script>document.addEventListener('DOMContentLoaded', initAuth);</script>
 </body>
 </html>

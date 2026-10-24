@@ -952,11 +952,56 @@ async function loadCommunityAlgos() {
             ▲ <span>${a.upvotes || 0}</span>
           </button>
         </div>
-        <button class="v2-load-btn" onclick="loadCommunityAlgo('${a.id}','${configJson}')">LOAD INTO BUILDER</button>
+        <div class="v2-algo-actions">
+          <button class="v2-load-btn" onclick="loadCommunityAlgo('${a.id}','${configJson}')">LOAD INTO BUILDER</button>
+          ${_canDeleteAlgo(a) ? `<button class="v2-del-btn" onclick="deleteCommunityAlgo('${a.id}','${esc(a.name).replace(/'/g, "\\'")}',this)" title="${_ownsAlgo(a) ? 'Delete your algorithm' : 'Delete as moderator'}">🗑</button>` : ''}
+        </div>
       </div>`;
     }).join('');
   } catch (_) {
     el.innerHTML = '<div style="font-size:10px;color:var(--muted);padding:12px 8px;">Could not load community algos.</div>';
+  }
+}
+
+// Who may see a delete control. The server re-checks this against the stored
+// row — this only decides whether the button is drawn.
+function _ownsAlgo(a) {
+  return typeof currentUser !== 'undefined' && currentUser?.id && a.user_id === currentUser.id;
+}
+function _canDeleteAlgo(a) {
+  return _ownsAlgo(a) || (typeof isAdminUser === 'function' && isAdminUser());
+}
+
+async function deleteCommunityAlgo(id, name, btn) {
+  const mine = typeof currentUser !== 'undefined' && currentUser?.id;
+  if (!mine) { if (typeof showAuthModal === 'function') showAuthModal('login'); return; }
+  if (!confirm(`Delete "${name}"?\n\nThis removes it from the community list for everyone and cannot be undone.`)) return;
+
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const sb = typeof getSupabase === 'function' ? getSupabase() : null;
+    const token = sb ? (await sb.auth.getSession()).data?.session?.access_token : null;
+    if (!token) throw new Error('Not signed in');
+
+    const res = await fetch(`/api/algos?id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Delete failed (${res.status})`);
+
+    const card = document.getElementById(`v2card-${id}`);
+    if (card) {
+      card.style.transition = 'opacity 0.25s, transform 0.25s';
+      card.style.opacity = '0';
+      card.style.transform = 'translateX(-12px)';
+      setTimeout(() => { card.remove(); loadCommunityAlgos(); }, 260);
+    } else {
+      loadCommunityAlgos();
+    }
+  } catch (e) {
+    alert('Could not delete: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '🗑'; }
   }
 }
 

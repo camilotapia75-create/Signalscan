@@ -1,7 +1,8 @@
 // Community algorithm store
-// GET  /api/algos            — list public algos (sorted by upvotes)
-// POST /api/algos            — save a new algo (auth required)
-// POST /api/algos?action=upvote&id=<uuid>  — upvote
+// GET    /api/algos                        — list public algos (sorted by upvotes)
+// POST   /api/algos                        — save a new algo (auth required)
+// POST   /api/algos?action=upvote&id=<uuid>  — upvote
+// DELETE /api/algos?id=<uuid>              — delete your own algo, or any as admin
 
 const SUPABASE_URL  = process.env.SUPABASE_URL  || 'https://bhykfnuljzzimzmdjcia.supabase.co';
 const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJoeWtmbnVsanp6aW16bWRqY2lhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0OTU0NDcsImV4cCI6MjA5MzA3MTQ0N30.Bl1Bigqc6iD8Pi1OTaMPNhRnrP6l4-vzcDoAo_acOUE';
@@ -12,8 +13,13 @@ function sbHeaders(useService = false) {
   return { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' };
 }
 
-// Verify Supabase JWT and return user_id, or null
-async function verifyToken(authHeader) {
+// Moderators. Checked server-side because the client cannot be trusted to
+// report who it is — a client-side admin flag is a suggestion, not a control.
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'camilotapia75@gmail.com')
+  .split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+
+// Verify Supabase JWT and return { id, email, isAdmin }, or null
+async function verifyUser(authHeader) {
   if (!authHeader?.startsWith('Bearer ')) return null;
   const token = authHeader.slice(7);
   try {
@@ -23,8 +29,15 @@ async function verifyToken(authHeader) {
     });
     if (!res.ok) return null;
     const user = await res.json();
-    return user?.id || null;
+    if (!user?.id) return null;
+    const email = (user.email || '').trim().toLowerCase();
+    return { id: user.id, email, isAdmin: ADMIN_EMAILS.includes(email) };
   } catch (_) { return null; }
+}
+
+async function verifyToken(authHeader) {
+  const u = await verifyUser(authHeader);
+  return u?.id || null;
 }
 
 // Validate algo config shape
@@ -37,7 +50,7 @@ function validateConfig(config) {
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.status(200).end();
 
@@ -45,7 +58,7 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       const r = await fetch(
-        `${SUPABASE_URL}/rest/v1/public_algos?is_public=eq.true&select=id,name,description,author_name,config,upvotes,scan_count,created_at&order=upvotes.desc,created_at.desc&limit=50`,
+        `${SUPABASE_URL}/rest/v1/public_algos?is_public=eq.true&select=id,user_id,name,description,author_name,config,upvotes,scan_count,created_at&order=upvotes.desc,created_at.desc&limit=50`,
         { headers: sbHeaders(), signal: AbortSignal.timeout(8000) }
       );
       const data = r.ok ? await r.json() : [];
@@ -53,6 +66,44 @@ export default async function handler(req, res) {
       return res.status(200).json(Array.isArray(data) ? data : []);
     } catch (e) {
       return res.status(503).json({ error: 'Unavailable' });
+    }
+  }
+
+  // ── DELETE: remove an algo ─────────────────────────────────────────────────
+  if (req.method === 'DELETE') {
+    const user = await verifyUser(req.headers['authorization']);
+    if (!user) return res.status(401).json({ error: 'Login required' });
+
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ error: 'Missing id' });
+
+    try {
+      // Read the owner first. Authorisation is decided from the stored row, not
+      // from anything the caller sent.
+      const look = await fetch(
+        `${SUPABASE_URL}/rest/v1/public_algos?id=eq.${encodeURIComponent(id)}&select=user_id,name`,
+        { headers: sbHeaders(true), signal: AbortSignal.timeout(5000) }
+      );
+      const rows = look.ok ? await look.json() : [];
+      if (!rows.length) return res.status(404).json({ error: 'Not found' });
+
+      const owner = rows[0].user_id;
+      if (owner !== user.id && !user.isAdmin) {
+        return res.status(403).json({ error: 'You can only delete your own algorithms' });
+      }
+
+      const del = await fetch(
+        `${SUPABASE_URL}/rest/v1/public_algos?id=eq.${encodeURIComponent(id)}`,
+        { method: 'DELETE', headers: sbHeaders(true), signal: AbortSignal.timeout(8000) }
+      );
+      if (!del.ok) {
+        console.error('[algos] delete failed:', await del.text());
+        return res.status(500).json({ error: 'Delete failed' });
+      }
+      console.log(`[algos] deleted "${rows[0].name}" by ${user.isAdmin && owner !== user.id ? 'admin' : 'owner'} ${user.email}`);
+      return res.status(200).json({ ok: true, deleted: id });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
     }
   }
 
